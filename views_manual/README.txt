@@ -1,0 +1,1 @@
+-- Dat file <db_id>.sql (cac lenh CREATE VIEW) vao day de thay view oracle bang view viet tay.

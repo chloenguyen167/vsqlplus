@@ -1,0 +1,106 @@
+
+==============================================================================
+1. Do thi khoa ngoai cua database mau
+==============================================================================
+10 bang, 11 khoa ngoai
+  hero_attribute.attribute_id -> attribute.id   [phia cha duy nhat: True]
+  hero_attribute.hero_id -> superhero.id   [phia cha duy nhat: True]
+  hero_power.power_id -> superpower.id   [phia cha duy nhat: True]
+  hero_power.hero_id -> superhero.id   [phia cha duy nhat: True]
+  superhero.alignment_id -> alignment.id   [phia cha duy nhat: True]
+  superhero.publisher_id -> publisher.id   [phia cha duy nhat: True]
+  superhero.race_id -> race.id   [phia cha duy nhat: True]
+  superhero.skin_colour_id -> colour.id   [phia cha duy nhat: True]
+  superhero.hair_colour_id -> colour.id   [phia cha duy nhat: True]
+  superhero.eye_colour_id -> colour.id   [phia cha duy nhat: True]
+  superhero.gender_id -> gender.id   [phia cha duy nhat: True]
+
+==============================================================================
+2. CAI TIEN 2 - View tu dong theo huong N-1 (khong nhin dap an)
+==============================================================================
+  v_hero_attribute   22 cot | kiem tra so dong: rows_equal  | noi: attribute AS attribute, superhero AS hero, alignment AS hero_alignment, publisher AS hero_publisher, race AS hero_race, colour AS hero_skin_colour, colour AS hero_hair_colour, colour AS hero_eye_colour, gender AS hero_gender
+  v_hero_power       21 cot | kiem tra so dong: rows_equal  | noi: superpower AS power, superhero AS hero, alignment AS hero_alignment, publisher AS hero_publisher, race AS hero_race, colour AS hero_skin_colour, colour AS hero_hair_colour, colour AS hero_eye_colour, gender AS hero_gender
+  v_superhero        19 cot | kiem tra so dong: rows_equal  | noi: alignment AS alignment, publisher AS publisher, race AS race, colour AS skin_colour, colour AS hair_colour, colour AS eye_colour, gender AS gender
+
+Mo ta v_superhero dua vao prompt (rut gon):
+VIEW v_superhero (  -- one row per row of superhero
+  id INTEGER,  -- e.g. 1, 2, 3
+  superhero_name TEXT,  -- e.g. '3-D Man', 'Hero 2', 'Hero 3'
+  full_name TEXT,  -- e.g. 'Full Name 1', 'Full Name 2', 'Full Name 3'
+  gender_id INTEGER,  -- e.g. 2, 3, 1
+  eye_colour_id INTEGER,  -- e.g. 4, 2, 6
+  hair_colour_id INTEGER,  -- e.g. 6, 5, 3
+  skin_colour_id INTEGER,  -- e.g. 1, 6, 4
+  race_id INTEGER,  -- e.g. 1, 2, 3
+  publisher_id INTEGER,  -- e.g. 2, 3, 1
+  alignment_id INTEGER,  -- e.g. 1, 2, 3
+  height_cm INTEGER,  -- e.g. 173, 210, 186
+  weight_kg INTEGER,  -- e.g. 57, 78, 89
+  alignment TEXT,  -- from alignment.alignment; e.g. 'Good', 'Bad', 'Neutral'
+  publisher_name TEXT,  -- from publisher.publisher_name; e.g. 'Marvel Comics', 'DC Comics', 'Dark Horse Comics'
+  race TEXT,  -- from race.race; e.g. 'Human', 'Mutant', 'Alien'
+  skin_colour TEXT,  -- from colour.colour; e.g. 'Blue', 'Brown', 'Green'
+  hair_colour TEXT,  -- from colour.colour; e.g. 'Blue', 'Brown', 'Green'
+  eye_colour TEXT,  -- from colour.colour; e.g. 'Blue', 'Brown', 'Green'
+  gender TEXT,  -- from gender.gender; e.g. 'Male', 'Female', 'N/A'
+); 
+  ...
+
+==============================================================================
+3. CAI TIEN 1 - Viet lai tat dinh: dummy SQL -> SQL tren bang goc (khong goi LLM)
+==============================================================================
+Dummy SQL tren view : SELECT superhero_name FROM v_superhero WHERE publisher_name = 'Marvel Comics' AND hair_colour = 'Blond'
+
+Sau khi mo rong view, prune=False (7 LEFT JOIN):
+  WITH v_superhero AS (SELECT superhero.id AS id, superhero.superhero_name AS superhero_name, superhero.full_name AS full_name, superhero.gender_id AS gender_id, superhero.eye_colour_id AS eye_colour_id, superhero.hair_colour_id AS hair_colour_id, superhero.skin_colour_id AS skin_colour_id, superhero.race_id AS race_id, superhero.publisher_id AS publisher_id, superhero.alignment_id AS alignment_id, superhero.height_cm AS height_cm, superhero.weight_kg AS weight_kg, alignment.alignment AS alignment, publisher.publisher_name AS publisher_name, race.race AS race, skin_colour.colour AS skin_colour, hair_colour.colour AS hair_colour, eye_colour.colour AS eye_colour, gender.gender AS gender FROM superhero LEFT JOIN alignment AS alignment ON superhero.alignment_id = alignment.id LEFT JOIN publisher AS publisher ON superhero.publisher_id = publisher.id LEFT JOIN race AS race ON superhero.race_id = race.id LEFT JOIN colour AS skin_colour ON superhero.skin_colour_id = skin_colour.id LEFT JOIN colour AS hair_colour ON superhero.hair_colour_id = hair_colour.id LEFT JOIN colour AS eye_colour ON superhero.eye_colour_id = eye_colour.id LEFT JOIN gender AS gender ON superhero.gender_id = gender.id) SELECT superhero_name FROM v_superhero WHERE publisher_name = 'Marvel Comics' AND hair_colour = 'Blond'
+
+Sau khi mo rong view, prune=True (2 LEFT JOIN):
+  WITH v_superhero AS (SELECT superhero.id AS id, superhero.superhero_name AS superhero_name, superhero.full_name AS full_name, superhero.gender_id AS gender_id, superhero.eye_colour_id AS eye_colour_id, superhero.hair_colour_id AS hair_colour_id, superhero.skin_colour_id AS skin_colour_id, superhero.race_id AS race_id, superhero.publisher_id AS publisher_id, superhero.alignment_id AS alignment_id, superhero.height_cm AS height_cm, superhero.weight_kg AS weight_kg, publisher.publisher_name AS publisher_name, hair_colour.colour AS hair_colour FROM superhero LEFT JOIN publisher AS publisher ON superhero.publisher_id = publisher.id LEFT JOIN colour AS hair_colour ON superhero.hair_colour_id = hair_colour.id) SELECT superhero_name FROM v_superhero WHERE publisher_name = 'Marvel Comics' AND hair_colour = 'Blond'
+
+Doi chung voi view that cua SQLite: 24/24 phep thu cho ket qua giong het (12 truy van x {co, khong} cat JOIN thua)
+
+==============================================================================
+4. Rui ro cua view kieu paper: quan he 1-N lam nhan ban dong
+==============================================================================
+  v_hero_attribute                                   oracle     rows_equal
+  v_hero_power                                       oracle     rows_equal
+  v_superhero                                        oracle     rows_equal
+  v_attribute_hero_attribute_hero_power_superhero    oracle_fan rows_differ(255 vs 120)
+
+  COUNT(*) / so hero khac nhau / AVG(chieu cao) tren view 1-N: 255 / 40 / 172.07
+  cung 3 so tren bang superhero                              : 40 / 40 / 172.85
+  -> COUNT(*) va AVG sai neu LLM viet tren view nay; buoc kiem tra so dong cua CT2 phat hien duoc.
+
+==============================================================================
+5. Duong ong day du voi MockLLM theo kich ban (chi minh hoa dang loi, KHONG do do chinh xac)
+==============================================================================
+Cau Cau hoi                                             base          vsql          vsql_det      auto_llm      auto_det      hybrid        hybrid_ret    
+0   How many superheroes have blue eyes?                correct       correct       correct       correct       correct       correct       correct       
+1   List the names of Marvel Comics superheroes with b  correct       correct       correct       correct       correct       correct       correct       
+2   List the superpowers of 3-D Man.                    correct       correct       correct       correct       correct       correct       correct       
+3   How many female superheroes have a strength value   correct       schema_column correct       schema_column correct       correct       correct       
+4   How many publishers are there?                      correct       correct       wrong_result  correct       wrong_result  correct       correct       
+5   How many distinct superpowers do heroes with Intel  correct       correct       correct       correct       correct       correct       correct       
+6   What is the average height of superheroes without   correct       correct       correct       correct       correct       correct       correct       
+
+So lan goi LLM / cau: base=1, vsql=2, vsql_det=1, auto_llm=2, auto_det=1, hybrid=1, hybrid_ret=1
+LUU Y: MockLLM duoc kich ban san (base/hybrid duoc cho SQL dung), nen 'correct' KHONG co nghia cau hinh do tot hon.
+Giai thich: cau 3 la loi ao giac cua Table 1 trong paper (hero_attribute.attribute_name) o buoc LLM tai tao;
+viet lai tat dinh khong the mac loi nay. Cau 4 (dem bang publisher) cho thay view-only mat thong tin ve bang
+tra cuu khong co hero -> schema lai (hybrid) khac phuc.
+
+==============================================================================
+6. CAI TIEN 4 - Do phu truy xuat theo k (BM25, khong goi LLM)
+==============================================================================
+k,full_coverage_pct,mean_table_recall_pct,mean_objects
+1,42.9,56.0,1.00
+2,71.4,84.5,2.00
+3,71.4,91.7,3.00
+4,100.0,100.0,4.00
+5,100.0,100.0,5.00
+6,100.0,100.0,6.00
+7,100.0,100.0,7.00
+8,100.0,100.0,8.00
+9,100.0,100.0,9.00
+10,100.0,100.0,10.00
+

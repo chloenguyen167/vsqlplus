@@ -1,0 +1,1 @@
+# Khong can thu vien ngoai: chi dung Python >= 3.8 (thu vien chuan) va Ollama chay cuc bo.

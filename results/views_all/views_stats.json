@@ -1,0 +1,90 @@
+{
+ "california_schools": {
+  "tables": 3,
+  "fks": 2,
+  "oracle": 2,
+  "oracle_fan": 0,
+  "auto": 1,
+  "auto_rows_equal": 1
+ },
+ "card_games": {
+  "tables": 6,
+  "fks": 4,
+  "oracle": 4,
+  "oracle_fan": 0,
+  "auto": 1,
+  "auto_rows_equal": 1
+ },
+ "codebase_community": {
+  "tables": 8,
+  "fks": 13,
+  "oracle": 7,
+  "oracle_fan": 0,
+  "auto": 7,
+  "auto_rows_equal": 7
+ },
+ "debit_card_specializing": {
+  "tables": 5,
+  "fks": 1,
+  "oracle": 1,
+  "oracle_fan": 0,
+  "auto": 1,
+  "auto_rows_equal": 1
+ },
+ "european_football_2": {
+  "tables": 7,
+  "fks": 31,
+  "oracle": 3,
+  "oracle_fan": 0,
+  "auto": 3,
+  "auto_rows_equal": 3
+ },
+ "financial": {
+  "tables": 8,
+  "fks": 8,
+  "oracle": 10,
+  "oracle_fan": 3,
+  "auto": 7,
+  "auto_rows_equal": 7
+ },
+ "formula_1": {
+  "tables": 13,
+  "fks": 19,
+  "oracle": 8,
+  "oracle_fan": 0,
+  "auto": 8,
+  "auto_rows_equal": 8
+ },
+ "student_club": {
+  "tables": 8,
+  "fks": 8,
+  "oracle": 6,
+  "oracle_fan": 1,
+  "auto": 5,
+  "auto_rows_equal": 5
+ },
+ "superhero": {
+  "tables": 10,
+  "fks": 11,
+  "oracle": 3,
+  "oracle_fan": 0,
+  "auto": 3,
+  "auto_rows_equal": 3
+ },
+ "thrombosis_prediction": {
+  "tables": 3,
+  "fks": 2,
+  "oracle": 3,
+  "oracle_fan": 1,
+  "auto": 2,
+  "auto_rows_equal": 2
+ },
+ "toxicology": {
+  "tables": 4,
+  "fks": 5,
+  "oracle": 4,
+  "oracle_fan": 1,
+  "auto": 3,
+  "auto_rows_equal": 3
+ }
+}

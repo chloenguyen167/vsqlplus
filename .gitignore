@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+results/
+minidev/
+llm_cache.sqlite
+*.sqlite
+!tests/**/*.sqlite
+.venv/
+.DS_Store
+# ket qua: chi giu cac tap dung trong bao cao
+!results/
+results/*
+!results/final/
+!results/pool5/
+!results/views_all/
+# tai lieu: khong dua PDF bai bao (ban quyen tac gia) va ban sao luu
+docs/*.pdf
+docs/*.bak.docx
