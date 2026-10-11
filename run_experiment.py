@@ -15,7 +15,7 @@ from pathlib import Path
 from vsql import report
 from vsql.db import run_sql, tables_in_sql
 from vsql.llm import OllamaLLM
-from vsql.pipeline import METHODS, DbCtx, run_item, score
+from vsql.pipeline import CORE, METHODS, DbCtx, run_item, score
 
 
 def parse_args(argv=None):
@@ -143,7 +143,7 @@ def main(argv=None, llm=None):
         data = [it for it in data if it["question_id"] in keep]
     if args.limit:
         data = data[:args.limit]
-    methods = list(METHODS) if args.methods == "all" else args.methods.split(",")
+    methods = list(CORE) if args.methods == "all" else args.methods.split(",")
 
     ctxs, stats = {}, {}
     for db in sorted({it["db_id"] for it in data}):

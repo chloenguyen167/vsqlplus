@@ -15,7 +15,12 @@ METHODS = {
     "auto_det":   dict(views="auto",   tables="leftover", stage2="det", note="CT1+CT2"),
     "hybrid":     dict(views="auto",   tables="all",      stage2="det", note="CT1+CT2+CT3: schema lai"),
     "hybrid_ret": dict(views="auto",   tables="all",      stage2="det", retrieve=True, note="CT1+2+3+CT4: truy xuat view"),
+    # bo sung (chay rieng bang --methods, khong nam trong "all" de giu so sanh cu)
+    "base_ret":   dict(views=None,     tables="all",      stage2=None,  retrieve=True, note="Doi chung: chi truy xuat bang, khong view"),
+    "auto_plain_det": dict(views="auto_plain", tables="leftover", stage2="det", note="CT1+CT2+CT6: view ten cot goc"),
+    "hybrid_ret_plain": dict(views="auto_plain", tables="all", stage2="det", retrieve=True, note="CT1-4+CT6: truy xuat, view ten cot goc"),
 }
+CORE = ["base", "vsql", "vsql_det", "auto_llm", "auto_det", "hybrid", "hybrid_ret"]
 
 P_BASE = """You are a SQLite expert. Write ONE SQLite query that answers the question using the database schema below.
 
@@ -71,7 +76,8 @@ class DbCtx:
             oracle = V.manual_views(s, man)
         else:
             oracle = V.oracle_views(s, gold_sqls, args.oracle_max_fan)
-        self.views = {"oracle": V.validate(s, oracle), "auto": V.validate(s, V.auto_views(s, args.depth, args.max_cols))}
+        self.views = {"oracle": V.validate(s, oracle), "auto": V.validate(s, V.auto_views(s, args.depth, args.max_cols)),
+                      "auto_plain": V.validate(s, V.auto_views(s, args.depth, args.max_cols, naming="plain"))}
         self._retr = {}
 
     def objects(self, m):

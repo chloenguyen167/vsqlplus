@@ -6,6 +6,7 @@ Gói mã chạy trên máy bạn, chỉ dùng thư viện chuẩn Python ≥ 3.8
 
 ```bash
 python tests/test_all.py     # kiểm thử phần tất định + đường ống với LLM giả lập
+python tests/test_repair.py  # kiểm thử CT5 schema-guard
 python demo.py               # minh họa 4 cải tiến trên CSDL mẫu theo schema superhero
 ```
 
@@ -21,8 +22,11 @@ vsql/views.py       sinh view (theo đáp án / tự động / viết tay), ki�
 vsql/retrieval.py   BM25, embedding, RRF (CT4)
 vsql/pipeline.py    7 cấu hình + prompt
 vsql/llm.py         client Ollama có cache; MockLLM
-vsql/report.py      EX, CI bootstrap, McNemar, phân loại lỗi, chi phí
+vsql/report.py      EX, CI bootstrap, McNemar (+ Holm), phân loại lỗi, chi phí
+vsql/repair.py      CT5 schema-guard: sửa SQL tất định theo thông báo lỗi + schema thật
 run_experiment.py   chạy thực nghiệm trên BIRD mini-dev
+improve.py          áp dụng hậu kỳ: CT5 (--fix), CT8 sửa bằng LLM (--feedback), CT7 bỏ phiếu (--vote)
+analyze.py          EX theo CSDL / số JOIN
 demo.py, tests/     demo và kiểm thử
 ```
 
@@ -91,9 +95,27 @@ Chênh lệch giữa hai cấu hình này vì thế chỉ do giai đoạn 2. Tư
 3. **Schema lai**: prompt gồm cả view lẫn bảng gốc, kèm quy tắc khi nào dùng loại nào; LLM được phép nối view với bảng.
 4. **Truy xuất**: BM25 trên tên view/bảng, tên cột và giá trị mẫu; tùy chọn embedding qua Ollama hoặc kết hợp RRF.
 
+### Cải tiến bổ sung (đợt 2, nhắm vào mô hình nhỏ)
+
+| Ký hiệu | Cấu hình / lệnh | Ý tưởng |
+|---|---|---|
+| CT5 | `improve.py --fix` → `<cấu hình>_fix` | Schema-guard: chạy SQL, đọc lỗi SQLite (cột/bảng/alias sai, cột có ký tự đặc biệt, hàm MySQL, `;` lạc), sửa theo schema thật, lặp tối đa 8 lần. Với cấu hình dùng view, sửa trên dummy SQL rồi mở rộng CTE lại. Không gọi LLM. |
+| CT6 | `--methods auto_plain_det,hybrid_ret_plain` | View đặt tên cột gốc (`SEX` thay vì `Patient_SEX`), chỉ thêm tiền tố khi trùng tên. |
+| CT7 | `improve.py --vote mrv=a,b,c` | Bỏ phiếu theo kết quả thực thi giữa nhiều cách biểu diễn schema (bảng gốc, view, truy xuất). |
+| CT8 | `improve.py --feedback <cấu hình>` | Câu vẫn lỗi sau CT5: gọi LLM một lần với thông báo lỗi và đúng danh sách cột, rồi CT5 lại. |
+| đối chứng | `--methods base_ret` | Chỉ truy xuất bảng (không view) - tách hiệu ứng "prompt ngắn" khỏi hiệu ứng "view". |
+
+```bash
+python run_experiment.py --data $D/mini_dev_sqlite.json --db-root $D/dev_databases --model qwen3.5:0.8b --out results/q08_500
+python run_experiment.py ... --model qwen3.5:0.8b --out results/q08_500 --methods base_ret,auto_plain_det,hybrid_ret_plain
+python improve.py results/q08_500 --data $D/mini_dev_sqlite.json --db-root $D/dev_databases --fix \
+    --feedback base_fix --vote mrv=base_fix,auto_det_fix,hybrid_ret_fix,hybrid_fix
+python -c "from vsql import report; report.build('results/q08_500')"
+```
+
 ## 4. Metric trong `summary.md`
 - **EX** theo định nghĩa của BIRD (so tập dòng kết quả), tổng và theo độ khó, kèm khoảng tin cậy bootstrap 95%.
-- **So sánh ghép cặp với `vsql`**: chênh lệch EX, khoảng tin cậy, kiểm định McNemar chính xác.
+- **So sánh ghép cặp với `vsql` và với `base`**: chênh lệch EX, khoảng tin cậy, kiểm định McNemar chính xác, p hiệu chỉnh Holm.
 - **Phân loại lỗi**: `no such column` / `no such table` / `ambiguous column` (ảo giác schema), cú pháp,
   kết quả rỗng, kết quả sai.
 - **Chi phí**: số lượt gọi LLM, token vào/ra, thời gian, số đối tượng schema trong prompt, độ phủ bảng đáp án, VES xấp xỉ.

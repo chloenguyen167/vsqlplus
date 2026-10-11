@@ -68,7 +68,7 @@ out = tmp / "out"
 run_experiment.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--topk", "4",
                      "--views-dir", str(tmp / "none")], llm=MockLLM(script))
 import json
-got = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().splitlines()] for m in run_experiment.METHODS}
+got = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().splitlines()] for m in run_experiment.CORE}
 ex = {m: sum(r["correct"] for r in rs) for m, rs in got.items()}
 assert ex["base"] == 7 and ex["vsql"] == 6 and ex["vsql_det"] == 6 and ex["auto_det"] == 6 and ex["hybrid"] == 7, ex
 assert got["vsql"][3]["outcome"] == "schema_column"            # ao giac kieu Table 1 duoc phan loai dung

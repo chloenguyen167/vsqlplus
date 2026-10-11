@@ -12,9 +12,23 @@ OUTCOMES = ["schema_column", "schema_table", "ambiguous_column", "syntax", "no_s
             "wrong_empty", "wrong_result"]
 
 
+EXTRA = {"_fix": "+ CT5 schema-guard", "mrv": "CT7 bo phieu theo ket qua thuc thi"}
+
+
+def note(m):
+    if m in METHODS:
+        return METHODS[m]["note"]
+    for k, v in EXTRA.items():
+        if m.endswith(k) and m[:-len(k)] in METHODS:
+            return METHODS[m[:-len(k)]]["note"] + " " + v
+    return next((v for k, v in EXTRA.items() if m.startswith(k)), m)
+
+
 def load(out_dir):
     res = {}
-    for m in METHODS:
+    found = sorted(p.stem[len("predictions_"):] for p in Path(out_dir).glob("predictions_*.jsonl"))
+    order = [m for m in METHODS if m in found] + [m for m in found if m not in METHODS and "old_prompt" not in m]
+    for m in order:
         p = Path(out_dir) / f"predictions_{m}.jsonl"
         if p.exists():
             rows = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
@@ -41,6 +55,16 @@ def mcnemar(b, c):
     return min(1.0, 2 * tail)
 
 
+def _holm(ps):
+    """Hieu chinh Holm-Bonferroni."""
+    order = sorted(range(len(ps)), key=lambda i: ps[i])
+    out, run = [0.0] * len(ps), 0.0
+    for k, i in enumerate(order):
+        run = max(run, min(1.0, (len(ps) - k) * ps[i]))
+        out[i] = run
+    return out
+
+
 def _pct(x):
     return "-" if x != x else f"{100 * x:.1f}"
 
@@ -65,27 +89,34 @@ def build(out_dir, ref="vsql"):
         by = {d: [int(r[q]["correct"]) for q in qids if r[q]["difficulty"] == d] for d in DIFFS}
         lo, hi = boot_ci(ok)
         cells = [f"{_pct(sum(v) / len(v)) if v else '-'} (n={len(v)})" for v in by.values()]
-        md.append(f"| `{m}` | {METHODS[m]['note']} | " + " | ".join(cells)
+        md.append(f"| `{m}` | {note(m)} | " + " | ".join(cells)
                   + f" | **{_pct(sum(ok) / len(ok))}** | [{_pct(lo)}, {_pct(hi)}] |")
         rows_csv.append(dict(method=m, n=len(ok), ex=100 * sum(ok) / len(ok), ci_lo=100 * lo, ci_hi=100 * hi,
                              **{f"ex_{d}": (100 * sum(v) / len(v) if v else "") for d, v in by.items()}))
 
-    # ---- 2. so sanh ghep cap
-    if ref in res:
-        md += [f"\n## 2. So sanh ghep cap voi `{ref}` (phuong phap cua paper)\n",
-               "| Cau hinh | dEX (diem %) | CI 95% cua dEX | Chi ref dung | Chi cau hinh nay dung | p McNemar |",
-               "|---|---|---|---|---|---|"]
+    # ---- 2. so sanh ghep cap (voi vsql = paper, va voi base), p hieu chinh Holm trong moi bang
+    for k, rf in enumerate([x for x in (ref, "base") if x in res]):
+        title = "phuong phap cua paper" if rf == ref else "baseline 1 giai doan"
+        md += [f"\n## 2{'ab'[k]}. So sanh ghep cap voi `{rf}` ({title})\n",
+               "| Cau hinh | dEX (diem %) | CI 95% cua dEX | Chi ref dung | Chi cau hinh nay dung | p McNemar | p Holm |",
+               "|---|---|---|---|---|---|---|"]
+        rows = []
         for m, r in res.items():
-            if m == ref:
+            if m == rf:
                 continue
-            d = [int(r[q]["correct"]) - int(res[ref][q]["correct"]) for q in qids]
+            d = [int(r[q]["correct"]) - int(res[rf][q]["correct"]) for q in qids]
             b, c = d.count(-1), d.count(1)
             lo, hi = boot_ci(d)
-            p = mcnemar(b, c)
-            md.append(f"| `{m}` | {100 * sum(d) / len(d):+.1f} | [{100 * lo:+.1f}, {100 * hi:+.1f}] | {b} | {c} | {p:.3f} |")
-            next(x for x in rows_csv if x["method"] == m).update(
-                delta_vs_ref=100 * sum(d) / len(d), delta_lo=100 * lo, delta_hi=100 * hi, only_ref=b, only_this=c, mcnemar_p=p)
-        md.append("\np < 0.05 moi coi la khac biet co y nghia thong ke; CI chua 0 nghia la chua ket luan duoc.")
+            rows.append((m, d, b, c, lo, hi, mcnemar(b, c)))
+        holm = _holm([x[6] for x in rows])
+        for (m, d, b, c, lo, hi, p), ph in zip(rows, holm):
+            md.append(f"| `{m}` | {100 * sum(d) / len(d):+.1f} | [{100 * lo:+.1f}, {100 * hi:+.1f}] | {b} | {c} | {p:.3f} | "
+                      + (f"**{ph:.3f}**" if ph < 0.05 else f"{ph:.3f}") + " |")
+            sfx = "" if rf == ref else "_base"
+            next(x for x in rows_csv if x["method"] == m).update(**{
+                f"delta_vs_ref{sfx}": 100 * sum(d) / len(d), f"delta_lo{sfx}": 100 * lo, f"delta_hi{sfx}": 100 * hi,
+                f"only_ref{sfx}": b, f"only_this{sfx}": c, f"mcnemar_p{sfx}": p, f"holm_p{sfx}": ph})
+    md.append("\np < 0.05 moi coi la khac biet co y nghia thong ke; p Holm da hieu chinh cho nhieu phep so sanh trong cung bang.")
 
     # ---- 3. loi
     md += ["\n## 3. Phan loai ket qua sai (% tren tong so cau)\n",

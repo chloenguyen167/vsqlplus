@@ -16,3 +16,17 @@ results/*
 # tai lieu: khong dua PDF bai bao (ban quyen tac gia) va ban sao luu
 docs/*.pdf
 docs/*.bak.docx
+# ma dung bao cao (khong dua len git) va cac ban bao cao
+report/
+docs/BaoCao_VSQL_v2.docx
+docs/*.docx
+!docs/BaoCao_VSQL.docx
+# ket qua phu (thu nghiem so bo, tap con qwen3:8b ban cu, nhat ky chay)
+results/q08/
+results/q08_core/
+results/q2b/
+results/q08_500/*.log
+results/q08_500/predictions_vsql.old_prompt.jsonl
+results/final/*_fix.jsonl
+results/final/predictions_mrv.jsonl
+!results/q08_500/

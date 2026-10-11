@@ -85,7 +85,8 @@ class View:
 
 # --------------------------------------------------------------------------- xay view co cau truc
 class _Builder:
-    def __init__(self, schema, base, name, origin):
+    def __init__(self, schema, base, name, origin, naming="prefix"):
+        self.naming = naming
         self.s = schema
         self.v = View(name, base, origin)
         self.names = set()
@@ -109,7 +110,9 @@ class _Builder:
         for c in self.s.tables[table].columns:
             if c.name in skip:
                 continue
-            self._add_col(_colname(prefix, c.name), a, table, c)
+            # plain (CT6): giu ten cot goc neu chua trung, chi them tien to khi trung ten
+            nm = c.name if self.naming == "plain" and c.name.lower() not in self.names else _colname(prefix, c.name)
+            self._add_col(nm, a, table, c)
         return a
 
 
@@ -132,9 +135,9 @@ def _colname(prefix, col):
     return f"{prefix}_{col}"
 
 
-def build_n1_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto"):
+def build_n1_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", naming="prefix"):
     """View = bang goc LEFT JOIN cac bang cha theo chieu N-1 (giu nguyen so dong)."""
-    b = _Builder(schema, base, "v_" + base, origin)
+    b = _Builder(schema, base, "v_" + base, origin, naming)
 
     def expand(alias, table, prefix, d, path):
         for fk in schema.tables[table].fks:
@@ -152,11 +155,12 @@ def build_n1_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto
     return b.v if b.v.joins else None
 
 
-def auto_views(schema, depth=2, max_cols=60):
-    """Cai tien 2: sinh view tu dong tu do thi khoa ngoai, khong nhin dap an."""
+def auto_views(schema, depth=2, max_cols=60, naming="prefix"):
+    """Cai tien 2: sinh view tu dong tu do thi khoa ngoai, khong nhin dap an.
+    naming="plain" (CT6): cot cua bang cha giu ten goc, chi them tien to khi trung ten."""
     out = []
     for t in schema.tables:
-        v = build_n1_view(schema, t, depth, None, max_cols, "auto")
+        v = build_n1_view(schema, t, depth, None, max_cols, "auto", naming)
         if v:
             out.append(v)
     return out
