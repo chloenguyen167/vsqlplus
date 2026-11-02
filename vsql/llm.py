@@ -1,6 +1,8 @@
-"""Client Ollama (qwen3 chay local) co cache; va MockLLM cho kiem thu."""
+"""Client LLM co cache: Ollama (model chay local, vd tren GPU Colab), API tuong thich OpenAI (Groq, Gemini, OpenRouter,
+vLLM...), va MockLLM cho kiem thu."""
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -65,6 +67,88 @@ class OllamaLLM:
 
     def embed(self, model, texts):
         return self._post("/api/embed", {"model": model, "input": texts})["embeddings"]
+
+
+class OpenAICompatLLM:
+    """Goi API /chat/completions kieu OpenAI. Cung giao dien voi OllamaLLM (chat, cached) va cung co che cache SQLite,
+    nen chay lai se khong goi lai API. Tu cho khi bi gioi han toc do (HTTP 429) va gian cach theo --rpm."""
+
+    def __init__(self, model, base_url, api_key=None, cache_path="llm_cache.sqlite", max_tokens=800, temperature=0.0,
+                 rpm=0, seed=0, extra=None):
+        self.model, self.base_url = model, base_url.rstrip("/")
+        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self.options = {"temperature": temperature, "max_tokens": max_tokens, "seed": seed}
+        self.extra = extra or {}
+        self.min_gap = 60.0 / rpm if rpm else 0.0
+        self._last = 0.0
+        self.db = sqlite3.connect(cache_path, check_same_thread=False)
+        self.db.execute("CREATE TABLE IF NOT EXISTS cache (k TEXT PRIMARY KEY, v TEXT)")
+        self.lock = threading.Lock()
+        self.truncated = 0
+
+    def _key(self, prompt):
+        return hashlib.sha256(json.dumps(["openai", self.base_url, self.model, self.options, prompt]).encode()).hexdigest()
+
+    def cached(self, prompt):
+        with self.lock:
+            row = self.db.execute("SELECT v FROM cache WHERE k=?", (self._key(prompt),)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def _post(self, body, tries=8):
+        req = lambda: urllib.request.Request(self.base_url + "/chat/completions", json.dumps(body).encode(),
+                                             {"Content-Type": "application/json",
+                                              "Authorization": f"Bearer {self.api_key}"})
+        wait = 5.0
+        for i in range(tries):
+            if self.min_gap:
+                time.sleep(max(0.0, self._last + self.min_gap - time.time()))
+            self._last = time.time()
+            try:
+                with urllib.request.urlopen(req(), timeout=600) as r:
+                    return json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                msg = e.read().decode("utf-8", "replace")[:300]
+                if e.code == 400 and "seed" in body:            # mot so nha cung cap khong nhan tham so seed
+                    body = {k: v for k, v in body.items() if k != "seed"}
+                    continue
+                if e.code in (429, 500, 502, 503, 504) and i < tries - 1:
+                    ra = e.headers.get("Retry-After")
+                    delay = float(ra) if ra and ra.replace(".", "").isdigit() else wait
+                    print(f"[API {e.code}] cho {delay:.0f}s roi thu lai... {msg[:120]}")
+                    time.sleep(delay)
+                    wait = min(wait * 2, 120)
+                    continue
+                raise RuntimeError(f"API loi {e.code}: {msg}") from None
+            except urllib.error.URLError as e:
+                if i < tries - 1:
+                    time.sleep(wait)
+                    wait = min(wait * 2, 120)
+                    continue
+                raise
+
+    def chat(self, prompt, meta=None):
+        hit = self.cached(prompt)
+        if hit:
+            return hit
+        body = {"model": self.model, "messages": [{"role": "user", "content": prompt}], **self.options, **self.extra}
+        t0 = time.perf_counter()
+        r = self._post(body)
+        dt = time.perf_counter() - t0
+        msg = r["choices"][0]["message"]
+        text = msg.get("content") or ""
+        usage = r.get("usage") or {}
+        out = {"text": text, "prompt_tokens": usage.get("prompt_tokens") or len(prompt) // 4,
+               "tokens_estimated": not usage.get("prompt_tokens"), "completion_tokens": usage.get("completion_tokens") or 0,
+               "seconds": dt}
+        if r["choices"][0].get("finish_reason") == "length":
+            self.truncated += 1
+        with self.lock:
+            self.db.execute("INSERT OR REPLACE INTO cache VALUES (?,?)", (self._key(prompt), json.dumps(out)))
+            self.db.commit()
+        return out
+
+    def embed(self, model, texts):
+        raise NotImplementedError("Dung --retriever bm25 khi chay qua API")
 
 
 class MockLLM:

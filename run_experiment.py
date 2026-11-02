@@ -14,7 +14,7 @@ from pathlib import Path
 
 from vsql import report
 from vsql.db import run_sql, tables_in_sql
-from vsql.llm import OllamaLLM
+from vsql.llm import OllamaLLM, OpenAICompatLLM
 from vsql.pipeline import CORE, METHODS, DbCtx, run_item, score
 
 
@@ -25,6 +25,12 @@ def parse_args(argv=None):
     a.add_argument("--out", default="results/run")
     a.add_argument("--methods", default="all", help="all hoac danh sach: " + ",".join(METHODS))
     a.add_argument("--model", default="qwen3:8b")
+    a.add_argument("--backend", default="ollama", choices=["ollama", "openai"],
+                   help="ollama: model chay local; openai: API tuong thich OpenAI (Groq, Gemini, OpenRouter, vLLM...)")
+    a.add_argument("--base-url", default="", help="vd https://api.groq.com/openai/v1 (khi --backend openai)")
+    a.add_argument("--api-key-env", default="OPENAI_API_KEY", help="ten bien moi truong chua API key")
+    a.add_argument("--rpm", type=float, default=0, help="gioi han so lan goi API moi phut (0 = khong gioi han)")
+    a.add_argument("--extra-json", default="", help='tham so rieng cua nha cung cap, vd \'{"reasoning_effort": "low"}\'')
     a.add_argument("--host", default="http://localhost:11434")
     a.add_argument("--num-ctx", type=int, default=16384)
     a.add_argument("--num-predict", type=int, default=800, help="paper: 800")
@@ -163,7 +169,13 @@ def main(argv=None, llm=None):
         return
 
     if llm is None:
-        llm = OllamaLLM(args.model, args.host, str(out / "llm_cache.sqlite"), args.num_ctx, args.num_predict, args.think)
+        if args.backend == "openai":
+            import os
+            llm = OpenAICompatLLM(args.model, args.base_url, os.environ.get(args.api_key_env, ""),
+                                  str(out / "llm_cache.sqlite"), args.num_predict, rpm=args.rpm,
+                                  extra=json.loads(args.extra_json) if args.extra_json else None)
+        else:
+            llm = OllamaLLM(args.model, args.host, str(out / "llm_cache.sqlite"), args.num_ctx, args.num_predict, args.think)
     if args.retrieval_sweep:
         m = METHODS["hybrid_ret"]
         lines = ["k,full_coverage_pct,mean_table_recall_pct,mean_objects"]

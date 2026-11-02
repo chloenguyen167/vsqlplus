@@ -12,18 +12,49 @@ So cau hoi chung cho moi cau hinh: **225**
 | `auto_det` | CT1+CT2 | 37.1 (n=62) | 36.1 (n=108) | 21.8 (n=55) | **32.9** | [26.7, 39.1] |
 | `hybrid` | CT1+CT2+CT3: schema lai | 37.1 (n=62) | 38.0 (n=108) | 14.5 (n=55) | **32.0** | [26.2, 38.2] |
 | `hybrid_ret` | CT1+2+3+CT4: truy xuat view | 45.2 (n=62) | 34.3 (n=108) | 18.2 (n=55) | **33.3** | [27.6, 39.6] |
+| `auto_det_fix` | CT1+CT2 + CT5 schema-guard | 46.8 (n=62) | 40.7 (n=108) | 23.6 (n=55) | **38.2** | [32.0, 44.4] |
+| `base_fix` | Baseline 1 giai doan tren bang goc + CT5 schema-guard | 59.7 (n=62) | 39.8 (n=108) | 27.3 (n=55) | **42.2** | [36.0, 48.4] |
+| `hybrid_fix` | CT1+CT2+CT3: schema lai + CT5 schema-guard | 50.0 (n=62) | 42.6 (n=108) | 16.4 (n=55) | **38.2** | [32.0, 44.9] |
+| `hybrid_ret_fix` | CT1+2+3+CT4: truy xuat view + CT5 schema-guard | 50.0 (n=62) | 38.0 (n=108) | 20.0 (n=55) | **36.9** | [30.7, 43.1] |
+| `mrv` | CT7 bo phieu theo ket qua thuc thi | 54.8 (n=62) | 46.3 (n=108) | 27.3 (n=55) | **44.0** | [37.3, 50.2] |
+| `vsql_det_fix` | CT1: viet lai tat dinh + CT5 schema-guard | 45.2 (n=62) | 36.1 (n=108) | 20.0 (n=55) | **34.7** | [28.4, 40.4] |
+| `vsql_fix` | TAI HIEN PAPER: view theo dap an + LLM tai tao + CT5 schema-guard | 43.5 (n=62) | 35.2 (n=108) | 21.8 (n=55) | **34.2** | [28.4, 40.4] |
 
-## 2. So sanh ghep cap voi `vsql` (phuong phap cua paper)
+## 2a. So sanh ghep cap voi `vsql` (phuong phap cua paper)
 
-| Cau hinh | dEX (diem %) | CI 95% cua dEX | Chi ref dung | Chi cau hinh nay dung | p McNemar |
-|---|---|---|---|---|---|
-| `base` | +8.4 | [+2.2, +14.7] | 17 | 36 | 0.013 |
-| `vsql_det` | -2.2 | [-5.8, +1.3] | 11 | 6 | 0.332 |
-| `auto_det` | +0.0 | [-4.4, +4.9] | 15 | 15 | 1.000 |
-| `hybrid` | -0.9 | [-6.2, +4.9] | 22 | 20 | 0.878 |
-| `hybrid_ret` | +0.4 | [-5.8, +6.7] | 23 | 24 | 1.000 |
+| Cau hinh | dEX (diem %) | CI 95% cua dEX | Chi ref dung | Chi cau hinh nay dung | p McNemar | p Holm |
+|---|---|---|---|---|---|---|
+| `base` | +8.4 | [+2.2, +14.7] | 17 | 36 | 0.013 | 0.127 |
+| `vsql_det` | -2.2 | [-5.8, +1.3] | 11 | 6 | 0.332 | 1.000 |
+| `auto_det` | +0.0 | [-4.4, +4.9] | 15 | 15 | 1.000 | 1.000 |
+| `hybrid` | -0.9 | [-6.2, +4.9] | 22 | 20 | 0.878 | 1.000 |
+| `hybrid_ret` | +0.4 | [-5.8, +6.7] | 23 | 24 | 1.000 | 1.000 |
+| `auto_det_fix` | +5.3 | [+0.9, +10.2] | 9 | 21 | 0.043 | 0.385 |
+| `base_fix` | +9.3 | [+3.1, +15.6] | 16 | 37 | 0.005 | 0.060 |
+| `hybrid_fix` | +5.3 | [+0.0, +10.7] | 13 | 25 | 0.073 | 0.584 |
+| `hybrid_ret_fix` | +4.0 | [-1.3, +9.8] | 17 | 26 | 0.222 | 1.000 |
+| `mrv` | +11.1 | [+5.8, +16.4] | 7 | 32 | 0.000 | **0.001** |
+| `vsql_det_fix` | +1.8 | [-0.9, +4.4] | 3 | 7 | 0.344 | 1.000 |
+| `vsql_fix` | +1.3 | [+0.0, +3.1] | 0 | 3 | 0.250 | 1.000 |
 
-p < 0.05 moi coi la khac biet co y nghia thong ke; CI chua 0 nghia la chua ket luan duoc.
+## 2b. So sanh ghep cap voi `base` (baseline 1 giai doan)
+
+| Cau hinh | dEX (diem %) | CI 95% cua dEX | Chi ref dung | Chi cau hinh nay dung | p McNemar | p Holm |
+|---|---|---|---|---|---|---|
+| `vsql` | -8.4 | [-14.7, -2.2] | 36 | 17 | 0.013 | 0.102 |
+| `vsql_det` | -10.7 | [-17.3, -4.0] | 40 | 16 | 0.002 | **0.022** |
+| `auto_det` | -8.4 | [-14.2, -2.7] | 32 | 13 | 0.007 | 0.066 |
+| `hybrid` | -9.3 | [-15.1, -3.6] | 33 | 12 | 0.002 | **0.027** |
+| `hybrid_ret` | -8.0 | [-13.8, -2.2] | 32 | 14 | 0.011 | 0.102 |
+| `auto_det_fix` | -3.1 | [-8.0, +1.8] | 21 | 14 | 0.311 | 1.000 |
+| `base_fix` | +0.9 | [+0.0, +2.2] | 0 | 2 | 0.500 | 1.000 |
+| `hybrid_fix` | -3.1 | [-8.4, +2.2] | 23 | 16 | 0.337 | 1.000 |
+| `hybrid_ret_fix` | -4.4 | [-10.2, +1.3] | 26 | 16 | 0.164 | 0.821 |
+| `mrv` | +2.7 | [-1.3, +6.7] | 8 | 14 | 0.286 | 1.000 |
+| `vsql_det_fix` | -6.7 | [-12.9, -0.4] | 33 | 18 | 0.049 | 0.293 |
+| `vsql_fix` | -7.1 | [-13.3, -0.9] | 34 | 18 | 0.036 | 0.255 |
+
+p < 0.05 moi coi la khac biet co y nghia thong ke; p Holm da hieu chinh cho nhieu phep so sanh trong cung bang.
 
 ## 3. Phan loai ket qua sai (% tren tong so cau)
 
@@ -37,6 +68,13 @@ p < 0.05 moi coi la khac biet co y nghia thong ke; CI chua 0 nghia la chua ket l
 | `auto_det` | 15.1 | 2.2 | 1.3 | 1.8 | 0.0 | 0.0 | 1.8 | 4.9 | 40.0 | **18.7** |
 | `hybrid` | 20.0 | 1.3 | 0.4 | 3.6 | 0.0 | 0.0 | 1.3 | 3.1 | 38.2 | **21.8** |
 | `hybrid_ret` | 16.9 | 0.9 | 0.4 | 3.1 | 0.0 | 0.4 | 0.4 | 4.0 | 40.4 | **18.2** |
+| `auto_det_fix` | 3.1 | 0.0 | 0.0 | 1.8 | 0.0 | 0.4 | 0.9 | 5.8 | 49.8 | **3.1** |
+| `base_fix` | 3.1 | 0.0 | 0.0 | 1.3 | 0.0 | 0.9 | 1.3 | 6.7 | 44.4 | **3.1** |
+| `hybrid_fix` | 5.3 | 0.0 | 0.0 | 4.0 | 0.0 | 0.0 | 0.4 | 4.0 | 48.0 | **5.3** |
+| `hybrid_ret_fix` | 5.3 | 0.0 | 0.0 | 3.1 | 0.0 | 0.4 | 0.4 | 4.9 | 48.9 | **5.3** |
+| `mrv` | 1.3 | 0.0 | 0.0 | 0.4 | 0.0 | 0.0 | 0.4 | 1.8 | 52.0 | **1.3** |
+| `vsql_det_fix` | 2.7 | 0.4 | 0.4 | 1.8 | 0.0 | 0.4 | 0.4 | 4.9 | 54.2 | **3.6** |
+| `vsql_fix` | 1.8 | 0.4 | 0.0 | 1.8 | 0.0 | 0.4 | 0.0 | 5.3 | 56.0 | **2.2** |
 
 ## 4. Chi phi (trung binh moi cau)
 
@@ -48,6 +86,13 @@ p < 0.05 moi coi la khac biet co y nghia thong ke; CI chua 0 nghia la chua ket l
 | `auto_det` | 1.00 | 3454 | 62 | 11.1 | 3.8 | 100.0 | 35.9 |
 | `hybrid` | 1.00 | 4966 | 64 | 17.8 | 8.9 | 100.0 | 33.3 |
 | `hybrid_ret` | 1.00 | 3648 | 64 | 17.8 | 5.0 | 98.7 | 32.9 |
+| `auto_det_fix` | 1.00 | 3454 | 62 | 11.1 | 3.8 | 100.0 | 41.3 |
+| `base_fix` | 1.00 | 2439 | 70 | 5.9 | 5.7 | 100.0 | 41.5 |
+| `hybrid_fix` | 1.00 | 4966 | 64 | 17.8 | 8.9 | 100.0 | 37.5 |
+| `hybrid_ret_fix` | 1.00 | 3648 | 64 | 17.8 | 5.0 | 98.7 | 35.4 |
+| `mrv` | 4.00 | 14507 | 259 | 52.6 | 5.4 | 100.0 | 44.0 |
+| `vsql_det_fix` | 1.00 | 3948 | 62 | 23.2 | 4.3 | 100.0 | 38.6 |
+| `vsql_fix` | 1.96 | 5493 | 144 | 35.5 | 4.3 | 100.0 | 39.6 |
 
 - *Do phu bang dap an*: ti le cau ma moi bang trong SQL dap an deu nam trong schema dua cho LLM (< 100% o `hybrid_ret` la loi cua buoc truy xuat).
 - *VES xap xi*: sqrt(t_dap_an / t_du_doan) tren cau dung, do 1 lan chay nen chi mang tinh tham khao.

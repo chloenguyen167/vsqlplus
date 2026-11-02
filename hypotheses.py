@@ -22,6 +22,8 @@ def compare(d, pairs):
     """pairs: [(ma, a, b)] -> list dict (a so voi b); p duoc hieu chinh Holm tren ca nhom."""
     rows = []
     for key, a, b in pairs:
+        if not all((Path(d) / f"predictions_{m}.jsonl").exists() for m in (a, b)):
+            continue                                   # bo qua cap chua co ket qua (vd khong chay CT6, CT8)
         A, B = preds(d, a), preds(d, b)
         qs = sorted(set(A) & set(B), key=str)
         diff = [int(A[q]["correct"]) - int(B[q]["correct"]) for q in qs]

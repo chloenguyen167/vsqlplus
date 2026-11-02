@@ -2,6 +2,14 @@
 
 Gói mã chạy trên máy bạn, chỉ dùng thư viện chuẩn Python ≥ 3.8 (không cần `pip install`).
 
+## Chạy trên Google Colab
+
+[![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/VSQL_Colab.ipynb)
+
+Notebook [`notebooks/VSQL_Colab.ipynb`](notebooks/VSQL_Colab.ipynb) tái hiện V-SQL và chạy hai cải tiến CT5 (sửa lỗi theo
+lược đồ) và CT7 (bỏ phiếu theo kết quả thực thi) với model chạy trên GPU của Colab (Ollama) hoặc qua API tương thích OpenAI.
+Hướng dẫn chi tiết: [`docs/HUONG_DAN_COLAB.md`](docs/HUONG_DAN_COLAB.md).
+
 ## 0. Chạy nhanh, không cần Ollama hay BIRD
 
 ```bash
