@@ -19,7 +19,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run_experiment                      # noqa: E402
-from tests.make_toy import ITEMS, make     # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent / "tests"))   # tranh trung ten goi "tests"
+from make_toy import ITEMS, make           # noqa: E402
 from vsql import views as V                # noqa: E402
 from vsql.db import Schema, run_sql        # noqa: E402
 from vsql.llm import MockLLM               # noqa: E402
@@ -100,7 +101,7 @@ run_experiment.main(["--data", str(data), "--db-root", str(db_root), "--out", st
                      "--views-dir", str(tmp / "none")], llm=MockLLM(script))
 sys.stdout.close()
 sys.stdout = _stdout
-methods = list(run_experiment.METHODS)
+methods = list(run_experiment.CORE)
 preds = {m: [json.loads(x) for x in (out / f"predictions_{m}.jsonl").read_text(encoding="utf-8").splitlines()] for m in methods}
 print(f"{'Cau':<4}{'Cau hoi':<52}" + "".join(f"{m:<14}" for m in methods))
 for i, it in enumerate(ITEMS):

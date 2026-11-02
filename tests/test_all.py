@@ -7,7 +7,8 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from tests.make_toy import ITEMS, make                      # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # import thang, tranh trung ten goi "tests" (vd tren Colab)
+from make_toy import ITEMS, make                            # noqa: E402
 from vsql import views as V                                 # noqa: E402
 from vsql.db import Schema, run_sql                         # noqa: E402
 from vsql.llm import MockLLM, extract_sql                   # noqa: E402
