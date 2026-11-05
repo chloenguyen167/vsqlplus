@@ -31,7 +31,8 @@ def parse_args(argv=None):
     a.add_argument("--tables-json", default="", help="dev_tables.json (TA-SQL dung pk/fk tu day); mac dinh canh --data")
     a.add_argument("--tasql-meaning", default="", help="column_meaning.json cua TA-SQL (khong co: dung mo ta CSV)")
     a.add_argument("--out", default="results/cmp")
-    a.add_argument("--methods", default="main", help="main | all | danh sach: " + ",".join(MAIN + ABLATIONS))
+    a.add_argument("--methods", default="main",
+                   help="main (tasql,vsql,vsqlplus) | all (+ ablation) | danh sach, vd: " + ",".join(MAIN + ABLATIONS + ["base"]))
     # LLM
     a.add_argument("--model", default="qwen3:8b")
     a.add_argument("--backend", default="ollama", choices=["ollama", "openai"])

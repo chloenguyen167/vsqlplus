@@ -1,6 +1,6 @@
-"""Bon phuong phap so sanh tren cung bo du lieu, cung LLM, cung cach cham:
+"""Ba phuong phap so sanh tren cung bo du lieu, cung LLM, cung cach cham (base chi chay khi goi rieng --methods base):
 
-  base      : mot lan goi, toan bo bang goc (doi chung zero-shot).
+  base      : (tuy chon, khong thuoc so sanh) mot lan goi tren toan bo bang goc.
   tasql     : TA-SQL (Qu et al., ACL Findings 2024) - baseline ma paper V-SQL so sanh. Cai lai dung ma nguon chinh thuc:
               TASL (dummy SQL tren toan schema -> trich bang/cot) + TALOG (bieu dien ky hieu SR kieu pandas -> SQL).
               Prompt chep nguyen van (vsql/tasql_prompts.py).
@@ -29,7 +29,7 @@ from .llm import extract_sql
 from .meta import Descriptions, load_tables_json, table6_table, table6_view, table_ddl
 
 NOTES = {
-    "base": "Zero-shot 1 giai doan tren bang goc",
+    "base": "(tuy chon) zero-shot 1 giai doan tren bang goc",
     "tasql": "TA-SQL (baseline cua paper): TASL dummy SQL + TALOG SR->SQL",
     "vsql": "V-SQL dung theo paper: view theo JOIN dap an, schema Bang 6, prompt Hinh 4 + Hinh 5",
     "vsqlplus": "V-SQL+ = huong 1 (sinh view tu dong) + huong 2 (chon view bang truy hoi lai); giai doan 2 nhu paper",
@@ -39,7 +39,7 @@ NOTES = {
     "vsqlplus_nofb": "V-SQL+ bo schema lai (huong 2)",
     "vsqlplus_det": "V-SQL+ thay giai doan 2 bang giai ma tat dinh (ngoai de xuat, de doi chieu)",
 }
-MAIN = ["base", "tasql", "vsql", "vsqlplus"]
+MAIN = ["tasql", "vsql", "vsqlplus"]                      # so sanh chinh: TA-SQL (baseline cua paper), V-SQL, V-SQL+
 ABLATIONS = ["vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb", "vsqlplus_det"]
 
 # --------------------------------------------------------------------------- prompt

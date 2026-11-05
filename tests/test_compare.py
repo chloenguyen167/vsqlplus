@@ -149,6 +149,10 @@ llm = ScriptLLM()
 run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "all",
                   "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
                   "--all-max-objects", "0", "--all-max-tokens", "0", "--k-cand", "6", "--n-samples", "3"], llm=llm)
+assert not (out / "predictions_base.jsonl").exists()         # mac dinh khong chay base
+run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "base",
+                  "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
+                  "--all-max-objects", "0", "--all-max-tokens", "0", "--k-cand", "6", "--n-samples", "3"], llm=llm)
 got = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().splitlines()]
        for m in ["base", "tasql", "vsql", "vsqlplus", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb",
                  "vsqlplus_det"]}

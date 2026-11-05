@@ -104,15 +104,16 @@ cần thiết để chạy với mô hình chat và để chạy lại ra cùng 
   dùng thứ tự cố định.
 - Mã gốc xóa mọi dấu `"` trong SQL. Ở đây chỉ bỏ dấu `"` đóng chuỗi `SQL = "...`, vì mô hình nhỏ hay dùng `"..."` làm chuỗi.
 
-### 2.3 Đối chứng `base`
+### 2.3 Phạm vi so sánh
 
-Một lần gọi trên toàn bộ bảng gốc, schema gồm mô tả cột + 3 giá trị mẫu (cùng cách trình bày với V-SQL+).
+Chỉ so sánh **TA-SQL, V-SQL, V-SQL+**, đúng như paper (V-SQL so với TA-SQL). Cấu hình zero-shot `base` không thuộc so sánh;
+mã vẫn giữ (`--methods base`) nhưng notebook không chạy.
 
 ### 2.4 Chấm điểm
 
 EX theo định nghĩa của BIRD (so tập dòng kết quả), timeout 30 giây. Mỗi cặp phương pháp được so ghép cặp trên cùng 500 câu
-bằng kiểm định McNemar chính xác, hiệu chỉnh Holm, kèm khoảng tin cậy bootstrap 95% của ΔEX. Báo cáo so với `tasql`,
-`vsql` và `base`.
+bằng kiểm định McNemar chính xác, hiệu chỉnh Holm, kèm khoảng tin cậy bootstrap 95% của ΔEX. Báo cáo so với `tasql`
+và `vsql`.
 
 ---
 

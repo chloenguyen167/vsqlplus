@@ -7,7 +7,7 @@ Gói mã chạy trên máy bạn, chỉ dùng thư viện chuẩn Python ≥ 3.8
 [![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb)
 
 `run_compare.py` + notebook [`notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`](notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb) (T4;
-`qwen3.5:0.8b`, `qwen3:8b`, `qwen3.5:9b`) chạy 4 cấu hình: `base`, `tasql` (TA-SQL, baseline của paper, cài theo mã chính
+`qwen3.5:0.8b`, `qwen3:8b`, `qwen3.5:9b`) chạy 3 phương pháp: `tasql` (TA-SQL, baseline của paper, cài theo mã chính
 thức), `vsql` (prompt Hình 4/5 của paper, view theo JOIN đáp án, tên cột như Hình 3), `vsqlplus` (kết hợp 2 hướng: tự động sinh view +
 chọn view bằng truy hồi lai, bổ trợ bởi truy hồi mức cột, liên kết giá trị, bầu chọn nhiều mẫu, schema lai). Kết quả kiểm tra phần tái hiện cũ (vì sao
 baseline luôn hơn V-SQL, lỗi đếm 498 câu) và thiết kế chi tiết: [`docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`](docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md).
