@@ -11,6 +11,7 @@ Gói mã chạy trên máy bạn, chỉ dùng thư viện chuẩn Python ≥ 3.8
 thức), `vsql` (prompt Hình 4/5 của paper, view theo JOIN đáp án, tên cột như Hình 3), `vsqlplus` (kết hợp 2 hướng: tự động sinh view +
 chọn view bằng truy hồi lai, bổ trợ bởi truy hồi mức cột, liên kết giá trị, bầu chọn nhiều mẫu, schema lai). Kết quả kiểm tra phần tái hiện cũ (vì sao
 baseline luôn hơn V-SQL, lỗi đếm 498 câu) và thiết kế chi tiết: [`docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`](docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md).
+Hướng dẫn chạy trên Colab từng bước: [`docs/HUONG_DAN_COLAB_SO_SANH.md`](docs/HUONG_DAN_COLAB_SO_SANH.md).
 
 ```bash
 python tests/test_compare.py     # kiểm thử 4 phương pháp với LLM giả lập
