@@ -151,7 +151,7 @@ Các chỉ số:
 
 (P3, P4 thuộc các cải tiến không chọn nên được bỏ qua tự động.)
 
-Kết quả tham khảo với `qwen3.5:0.8b` trên đủ 498 câu (bộ mini-dev có 2 câu bị lặp): base 8,4%, V-SQL 3,8%, base + CT5 11,4%,
+Kết quả tham khảo với `qwen3.5:0.8b` trên 498 câu (mã cũ gộp nhầm 2 dòng lặp `question_id` 137/138; mã mới tính đủ 500 câu): base 8,4%, V-SQL 3,8%, base + CT5 11,4%,
 CT7 13,5%. Với mô hình mạnh hơn, EX sẽ cao hơn nhiều; điều đáng quan tâm là các chênh lệch giữa cấu hình còn giữ được hay không.
 
 ## 7. Lỗi thường gặp

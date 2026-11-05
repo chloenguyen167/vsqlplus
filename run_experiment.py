@@ -68,8 +68,12 @@ def stratified_sample(data, n, seed=0):
     keep = set()
     for k in sorted(groups, key=str):
         g = groups[k]
-        keep |= {it["question_id"] for it in rnd.sample(g, min(len(g), round(n * len(g) / len(data))))}
-    return [it for it in data if it["question_id"] in keep]
+        keep |= {it["uid"] for it in rnd.sample(g, min(len(g), round(n * len(g) / len(data))))}
+    return [it for it in data if it["uid"] in keep]
+
+
+def _key(rec):
+    return rec.get("uid", rec["qid"])
 
 
 class _Pending(Exception):
@@ -136,6 +140,7 @@ def main(argv=None, llm=None):
     (out / "views").mkdir(parents=True, exist_ok=True)
     data = json.loads(Path(args.data).read_text(encoding="utf-8"))
     for i, it in enumerate(data):
+        it["uid"] = i                              # dinh danh theo vi tri: du 500 cau (question_id 137, 138 lap 2 lan)
         it.setdefault("question_id", i)
     by_db = defaultdict(list)
     for it in data:
@@ -198,17 +203,17 @@ def main(argv=None, llm=None):
         jobs = []
         for method in methods:
             p = out / f"predictions_{method}.jsonl"
-            done = {json.loads(l)["qid"] for l in p.read_text(encoding="utf-8").splitlines() if l.strip()} if p.exists() else set()
-            jobs += [(method, it) for it in data if it["question_id"] not in done]
+            done = {_key(json.loads(l)) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()} if p.exists() else set()
+            jobs += [(method, it) for it in data if it["uid"] not in done]
         prefetch(llm, jobs, ctxs, args, out)
     gold = {}
     for method in methods:
         p = out / f"predictions_{method}.jsonl"
-        done = {json.loads(l)["qid"] for l in p.read_text(encoding="utf-8").splitlines() if l.strip()} if p.exists() else set()
+        done = {_key(json.loads(l)) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()} if p.exists() else set()
         ok = n = 0
         with open(p, "a", encoding="utf-8") as f:
             for it in data:
-                qid = it["question_id"]
+                qid = it["uid"]
                 if qid in done:
                     continue
                 c = ctxs[it["db_id"]]

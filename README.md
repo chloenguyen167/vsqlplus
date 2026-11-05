@@ -2,6 +2,22 @@
 
 Gói mã chạy trên máy bạn, chỉ dùng thư viện chuẩn Python ≥ 3.8 (không cần `pip install`).
 
+## Mới: so sánh TA-SQL · V-SQL (đúng theo paper) · V-SQL+ trên đủ 500 câu
+
+[![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb)
+
+`run_compare.py` + notebook [`notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`](notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb) (T4;
+`qwen3.5:0.8b`, `qwen3:8b`, `qwen3.5:9b`) chạy 4 cấu hình: `base`, `tasql` (TA-SQL, baseline của paper, cài theo mã chính
+thức), `vsql` (prompt Hình 4/5 của paper, view theo JOIN đáp án, tên cột như Hình 3), `vsqlplus` (kết hợp 2 hướng: tự động sinh view +
+chọn view bằng truy hồi lai, bổ trợ bởi truy hồi mức cột, liên kết giá trị, bầu chọn nhiều mẫu, schema lai). Kết quả kiểm tra phần tái hiện cũ (vì sao
+baseline luôn hơn V-SQL, lỗi đếm 498 câu) và thiết kế chi tiết: [`docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`](docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md).
+
+```bash
+python tests/test_compare.py     # kiểm thử 4 phương pháp với LLM giả lập
+```
+
+Các mục dưới đây mô tả mã của đợt trước (CT1–CT8, `run_experiment.py`).
+
 ## Chạy trên Google Colab
 
 [![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/VSQL_Colab.ipynb)
@@ -136,7 +152,7 @@ python -c "from vsql import report; report.build('results/q08_500')"
   SQL đáp án) bằng thuật toán `views.oracle_views`. Muốn dùng view viết tay, đặt `views_manual/<db_id>.sql`
   gồm các lệnh `CREATE VIEW ... AS SELECT ...;` (sẽ thay cho view oracle của database đó).
 - **Prompt** do tôi viết lại theo mô tả của paper, không sao nguyên văn phụ lục.
-- **Baseline DIN-SQL, DAIL-SQL, TA-SQL không được cài lại**; chỉ có baseline `base`.
+- **Baseline DIN-SQL, DAIL-SQL không được cài lại.** TA-SQL được cài trong `run_compare.py` (cấu hình `tasql`).
 - Paper không nói có dùng `evidence` và giá trị mẫu hay không; ở đây cả hai được bật cho *mọi* cấu hình
   (tắt bằng `--no-evidence`, `--samples 0`).
 - View `oracle` nhìn đáp án của tập đánh giá (như paper), nên `vsql`/`vsql_det` có lợi thế không công bằng

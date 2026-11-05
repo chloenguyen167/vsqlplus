@@ -16,6 +16,9 @@ EXTRA = {"_fix": "+ CT5 schema-guard", "mrv": "CT7 bo phieu theo ket qua thuc th
 
 
 def note(m):
+    from .methods import NOTES
+    if m in NOTES:
+        return NOTES[m]
     if m in METHODS:
         return METHODS[m]["note"]
     for k, v in EXTRA.items():
@@ -26,14 +29,17 @@ def note(m):
 
 def load(out_dir):
     res = {}
+    from .methods import NOTES
     found = sorted(p.stem[len("predictions_"):] for p in Path(out_dir).glob("predictions_*.jsonl"))
-    order = [m for m in METHODS if m in found] + [m for m in found if m not in METHODS and "old_prompt" not in m]
+    order = [m for m in NOTES if m in found] + [m for m in METHODS if m in found and m not in NOTES]
+    order += [m for m in found if m not in order and "old_prompt" not in m]
     for m in order:
         p = Path(out_dir) / f"predictions_{m}.jsonl"
         if p.exists():
             rows = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
             if rows:
-                res[m] = {r["qid"]: r for r in rows}
+                # uid = vi tri cau trong file du lieu (du 500 cau); file cu chi co qid (2 cap qid trung -> 498)
+                res[m] = {r.get("uid", r["qid"]): r for r in rows}
     return res
 
 
@@ -69,7 +75,7 @@ def _pct(x):
     return "-" if x != x else f"{100 * x:.1f}"
 
 
-def build(out_dir, ref="vsql"):
+def build(out_dir, ref="vsql", refs=None):
     out_dir = Path(out_dir)
     res = load(out_dir)
     if not res:
@@ -95,9 +101,11 @@ def build(out_dir, ref="vsql"):
                              **{f"ex_{d}": (100 * sum(v) / len(v) if v else "") for d, v in by.items()}))
 
     # ---- 2. so sanh ghep cap (voi vsql = paper, va voi base), p hieu chinh Holm trong moi bang
-    for k, rf in enumerate([x for x in (ref, "base") if x in res]):
-        title = "phuong phap cua paper" if rf == ref else "baseline 1 giai doan"
-        md += [f"\n## 2{'ab'[k]}. So sanh ghep cap voi `{rf}` ({title})\n",
+    titles = {"vsql": "V-SQL theo paper", "tasql": "TA-SQL, baseline cua paper", "base": "baseline 1 giai doan"}
+    refs = [x for x in (refs or (ref, "base")) if x in res]
+    for k, rf in enumerate(refs):
+        title = titles.get(rf, rf)
+        md += [f"\n## 2{'abcdef'[k]}. So sanh ghep cap voi `{rf}` ({title})\n",
                "| Cau hinh | dEX (diem %) | CI 95% cua dEX | Chi ref dung | Chi cau hinh nay dung | p McNemar | p Holm |",
                "|---|---|---|---|---|---|---|"]
         rows = []
@@ -112,7 +120,7 @@ def build(out_dir, ref="vsql"):
         for (m, d, b, c, lo, hi, p), ph in zip(rows, holm):
             md.append(f"| `{m}` | {100 * sum(d) / len(d):+.1f} | [{100 * lo:+.1f}, {100 * hi:+.1f}] | {b} | {c} | {p:.3f} | "
                       + (f"**{ph:.3f}**" if ph < 0.05 else f"{ph:.3f}") + " |")
-            sfx = "" if rf == ref else "_base"
+            sfx = "" if k == 0 else f"_{rf}"
             next(x for x in rows_csv if x["method"] == m).update(**{
                 f"delta_vs_ref{sfx}": 100 * sum(d) / len(d), f"delta_lo{sfx}": 100 * lo, f"delta_hi{sfx}": 100 * hi,
                 f"only_ref{sfx}": b, f"only_this{sfx}": c, f"mcnemar_p{sfx}": p, f"holm_p{sfx}": ph})
@@ -156,7 +164,16 @@ def build(out_dir, ref="vsql"):
              ("CT1 tren view tu dong", "auto_det", "auto_llm"),
              ("CT3 schema lai (them bang goc)", "hybrid", "auto_det"),
              ("CT4 truy xuat top-k", "hybrid_ret", "hybrid"),
-             ("Dong gop cua view so voi baseline 1 giai doan", "vsql", "base")]
+             ("Dong gop cua view so voi baseline 1 giai doan", "vsql", "base"),
+             ("V-SQL (paper) so voi TA-SQL", "vsql", "tasql"),
+             ("V-SQL+ so voi V-SQL (paper)", "vsqlplus", "vsql"),
+             ("V-SQL+ so voi TA-SQL", "vsqlplus", "tasql"),
+             ("Huong 1 rieng: view tu dong so voi view theo dap an", "vsqlplus_all", "vsql"),
+             ("Huong 2: chon view (so voi dua het view)", "vsqlplus", "vsqlplus_all"),
+             ("Huong 2 - bau chon nhieu mau", "vsqlplus", "vsqlplus_novote"),
+             ("Huong 2 - lien ket gia tri", "vsqlplus", "vsqlplus_novl"),
+             ("Huong 2 - schema lai", "vsqlplus", "vsqlplus_nofb"),
+             ("Giai doan 2 LLM (paper) so voi giai ma tat dinh", "vsqlplus", "vsqlplus_det")]
     md += ["\n## 5. Dong gop rieng cua tung cai tien\n", "| Yeu to | So sanh | dEX |", "|---|---|---|"]
     for name, a, b in pairs:
         if ex(a) is not None and ex(b) is not None:
@@ -168,7 +185,8 @@ def build(out_dir, ref="vsql"):
         md += ["\n## 6. Thong ke view\n", "| DB | Bang | FK | View oracle (trong do co nhan ban dong) | View auto | View auto giu nguyen so dong |",
                "|---|---|---|---|---|---|"]
         for db, s in st.items():
-            md.append(f"| {db} | {s['tables']} | {s['fks']} | {s['oracle']} ({s['oracle_fan']}) | {s['auto']} | {s['auto_rows_equal']} |")
+            md.append(f"| {db} | {s['tables']} | {s['fks']} | {s['oracle']} ({s.get('oracle_fan', 0)}) | {s['auto']} | "
+                      f"{s.get('auto_rows_equal', s.get('auto_ok', '-'))} |")
 
     (out_dir / "summary.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     keys = []

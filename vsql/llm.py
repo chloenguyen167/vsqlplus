@@ -28,21 +28,27 @@ class OllamaLLM:
         with urllib.request.urlopen(req, timeout=1800) as r:
             return json.loads(r.read())
 
-    def _key(self, prompt):
-        return hashlib.sha256(json.dumps([self.model, self.options, self.think, prompt]).encode()).hexdigest()
+    def _key(self, prompt, opts=None):
+        # opts rong -> giu nguyen khoa cu (tuong thich cache cua cac lan chay truoc)
+        k = [self.model, self.options, self.think, prompt] + ([_norm(opts)] if opts else [])
+        return hashlib.sha256(json.dumps(k).encode()).hexdigest()
 
-    def cached(self, prompt):
+    def cached(self, prompt, **opts):
         with self.lock:
-            row = self.db.execute("SELECT v FROM cache WHERE k=?", (self._key(prompt),)).fetchone()
+            row = self.db.execute("SELECT v FROM cache WHERE k=?", (self._key(prompt, opts),)).fetchone()
         return json.loads(row[0]) if row else None
 
-    def chat(self, prompt, meta=None):
-        key = self._key(prompt)
-        hit = self.cached(prompt)
+    def chat(self, prompt, meta=None, **opts):
+        """opts (tuy chon, theo tung loi goi): temperature, seed, top_p, stop, num_predict, system."""
+        key = self._key(prompt, opts)
+        hit = self.cached(prompt, **opts)
         if hit:
             return hit
-        body = {"model": self.model, "stream": False, "options": self.options, "think": self.think,
-                "messages": [{"role": "user", "content": prompt}]}
+        o = dict(opts)
+        system = o.pop("system", None)
+        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        body = {"model": self.model, "stream": False, "options": {**self.options, **o}, "think": self.think,
+                "messages": msgs}
         t0 = time.perf_counter()
         try:
             r = self._post("/api/chat", body)
@@ -51,7 +57,7 @@ class OllamaLLM:
                 raise
             body.pop("think")                      # Ollama cu hoac model khong ho tro tham so think
             if not self.think:
-                body["messages"][0]["content"] = prompt + "\n/no_think"
+                body["messages"][-1]["content"] = prompt + "\n/no_think"
             r = self._post("/api/chat", body)
         dt = time.perf_counter() - t0
         pt = r.get("prompt_eval_count") or 0
@@ -66,7 +72,29 @@ class OllamaLLM:
         return out
 
     def embed(self, model, texts):
-        return self._post("/api/embed", {"model": model, "input": texts})["embeddings"]
+        """Embedding qua Ollama, co cache theo (model, van ban)."""
+        self.db.execute("CREATE TABLE IF NOT EXISTS emb (k TEXT PRIMARY KEY, v TEXT)")
+        keys = [hashlib.sha256(json.dumps([model, t]).encode()).hexdigest() for t in texts]
+        out = {}
+        with self.lock:
+            for k in keys:
+                row = self.db.execute("SELECT v FROM emb WHERE k=?", (k,)).fetchone()
+                if row:
+                    out[k] = json.loads(row[0])
+        miss = [(k, t) for k, t in zip(keys, texts) if k not in out]
+        for i in range(0, len(miss), 64):
+            part = miss[i:i + 64]
+            vecs = self._post("/api/embed", {"model": model, "input": [t for _, t in part]})["embeddings"]
+            with self.lock:
+                for (k, _), v in zip(part, vecs):
+                    out[k] = v
+                    self.db.execute("INSERT OR REPLACE INTO emb VALUES (?,?)", (k, json.dumps(v)))
+                self.db.commit()
+        return [out[k] for k in keys]
+
+
+def _norm(opts):
+    return sorted((k, v) for k, v in opts.items())
 
 
 class OpenAICompatLLM:
@@ -86,12 +114,13 @@ class OpenAICompatLLM:
         self.lock = threading.Lock()
         self.truncated = 0
 
-    def _key(self, prompt):
-        return hashlib.sha256(json.dumps(["openai", self.base_url, self.model, self.options, prompt]).encode()).hexdigest()
+    def _key(self, prompt, opts=None):
+        k = ["openai", self.base_url, self.model, self.options, prompt] + ([_norm(opts)] if opts else [])
+        return hashlib.sha256(json.dumps(k).encode()).hexdigest()
 
-    def cached(self, prompt):
+    def cached(self, prompt, **opts):
         with self.lock:
-            row = self.db.execute("SELECT v FROM cache WHERE k=?", (self._key(prompt),)).fetchone()
+            row = self.db.execute("SELECT v FROM cache WHERE k=?", (self._key(prompt, opts),)).fetchone()
         return json.loads(row[0]) if row else None
 
     def _post(self, body, tries=8):
@@ -126,11 +155,16 @@ class OpenAICompatLLM:
                     continue
                 raise
 
-    def chat(self, prompt, meta=None):
-        hit = self.cached(prompt)
+    def chat(self, prompt, meta=None, **opts):
+        hit = self.cached(prompt, **opts)
         if hit:
             return hit
-        body = {"model": self.model, "messages": [{"role": "user", "content": prompt}], **self.options, **self.extra}
+        o = dict(opts)
+        system = o.pop("system", None)
+        if "num_predict" in o:
+            o["max_tokens"] = o.pop("num_predict")
+        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+        body = {"model": self.model, "messages": msgs, **self.options, **self.extra, **o}
         t0 = time.perf_counter()
         r = self._post(body)
         dt = time.perf_counter() - t0
@@ -143,7 +177,7 @@ class OpenAICompatLLM:
         if r["choices"][0].get("finish_reason") == "length":
             self.truncated += 1
         with self.lock:
-            self.db.execute("INSERT OR REPLACE INTO cache VALUES (?,?)", (self._key(prompt), json.dumps(out)))
+            self.db.execute("INSERT OR REPLACE INTO cache VALUES (?,?)", (self._key(prompt, opts), json.dumps(out)))
             self.db.commit()
         return out
 
@@ -157,7 +191,7 @@ class MockLLM:
     def __init__(self, script):
         self.script = script
 
-    def chat(self, prompt, meta=None):
+    def chat(self, prompt, meta=None, **opts):
         sql = self.script.get((meta["qid"], meta["stage"]), "")
         return {"text": f"```sql\n{sql}\n```", "prompt_tokens": len(prompt) // 4, "tokens_estimated": True,
                 "completion_tokens": len(sql) // 4, "seconds": 0.0}

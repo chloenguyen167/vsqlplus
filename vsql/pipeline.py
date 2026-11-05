@@ -116,7 +116,7 @@ def run_item(method, item, ctx, llm, args):
     if m.get("retrieve") and len(vs) + len(ts) > args.topk:
         top = set(ctx.retriever(m, args, llm).rank(q + " " + (item.get("evidence") or ""))[:args.topk])
         vs, ts = [v for v in vs if v.name in top], [t for t in ts if t in top]
-    rec = dict(qid=item["question_id"], db_id=item["db_id"], difficulty=item.get("difficulty", "unknown"),
+    rec = dict(uid=item.get("uid"), qid=item["question_id"], db_id=item["db_id"], difficulty=item.get("difficulty", "unknown"),
                method=method, n_objects=len(vs) + len(ts), coverage=ctx.coverage(vs, ts, gold_tables),
                calls=0, prompt_tokens=0, completion_tokens=0, llm_seconds=0.0, dummy_sql=None, views_used=[])
 
