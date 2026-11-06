@@ -11,6 +11,12 @@ import urllib.error
 import urllib.request
 
 
+class LLMError(Exception):
+    def __init__(self, code, msg):
+        super().__init__(f"{code}: {msg}")
+        self.code, self.msg = code, msg
+
+
 class OllamaLLM:
     def __init__(self, model="qwen3:8b", host="http://localhost:11434", cache_path="llm_cache.sqlite",
                  num_ctx=16384, num_predict=800, think=False, seed=0):
@@ -22,11 +28,25 @@ class OllamaLLM:
         self.truncated = 0
         self.lock = threading.Lock()
 
-    def _post(self, path, body):
-        req = urllib.request.Request(self.host + path, json.dumps(body).encode(),
-                                     {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=1800) as r:
-            return json.loads(r.read())
+    def _post(self, path, body, tries=3):
+        """Goi Ollama; loi 5xx (vd model runner bi dung) -> thu lai sau 5s, 15s. Loi ket noi -> cho may chu khoi dong lai."""
+        data = json.dumps(body).encode()
+        for i in range(tries):
+            req = urllib.request.Request(self.host + path, data, {"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=1800) as r:
+                    return json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                msg = e.read().decode("utf-8", "replace")[:300]
+                if e.code < 500 or i == tries - 1:
+                    raise LLMError(e.code, msg) from None
+                print(f"[Ollama {e.code}] {msg} -> thu lai ({i + 1}/{tries - 1})", flush=True)
+            except urllib.error.URLError as e:
+                if i == tries - 1:
+                    raise                                   # may chu Ollama khong chay: dung, khong ghi cache
+                print(f"[Ollama] khong ket noi duoc ({e.reason}) -> thu lai", flush=True)
+                time.sleep(25)
+            time.sleep(5 + 10 * i)
 
     def _key(self, prompt, opts=None):
         # opts rong -> giu nguyen khoa cu (tuong thich cache cua cac lan chay truoc)
@@ -51,14 +71,25 @@ class OllamaLLM:
                 "messages": msgs}
         t0 = time.perf_counter()
         try:
-            r = self._post("/api/chat", body)
-        except urllib.error.HTTPError as e:
-            if e.code != 400:
-                raise
-            body.pop("think")                      # Ollama cu hoac model khong ho tro tham so think
-            if not self.think:
-                body["messages"][-1]["content"] = prompt + "\n/no_think"
-            r = self._post("/api/chat", body)
+            try:
+                r = self._post("/api/chat", body)
+            except LLMError as e:
+                if e.code != 400:
+                    raise
+                body.pop("think")                  # Ollama cu hoac model khong ho tro tham so think
+                if not self.think:
+                    body["messages"][-1]["content"] = prompt + "\n/no_think"
+                r = self._post("/api/chat", body)
+        except LLMError as e:
+            # prompt nay lam Ollama loi lap lai: ghi nhan cau tra loi rong (phuong phap tinh sai cau nay), khong dung ca lan chay.
+            # Ghi vao cache de ket qua tai lap; chay lai voi --retry-llm-errors de thu lai cac prompt nay.
+            print(f"[LOI LLM] Ollama {e.code}: {e.msg[:200]} -> ghi nhan cau tra loi rong", flush=True)
+            out = {"text": "", "prompt_tokens": 0, "tokens_estimated": True, "completion_tokens": 0,
+                   "seconds": time.perf_counter() - t0, "llm_error": f"{e.code}: {e.msg[:300]}"}
+            with self.lock:
+                self.db.execute("INSERT OR REPLACE INTO cache VALUES (?,?)", (key, json.dumps(out)))
+                self.db.commit()
+            return out
         dt = time.perf_counter() - t0
         pt = r.get("prompt_eval_count") or 0
         out = {"text": r["message"]["content"], "prompt_tokens": pt or len(prompt) // 4,
@@ -70,6 +101,13 @@ class OllamaLLM:
             self.db.execute("INSERT OR REPLACE INTO cache VALUES (?,?)", (key, json.dumps(out)))
             self.db.commit()
         return out
+
+    def forget_errors(self):
+        """Xoa cac cau tra loi loi da ghi (de thu lai). Tra ve so dong da xoa."""
+        with self.lock:
+            n = self.db.execute("DELETE FROM cache WHERE v LIKE '%\"llm_error\"%'").rowcount
+            self.db.commit()
+        return n
 
     def embed(self, model, texts):
         """Embedding qua Ollama, co cache theo (model, van ban)."""

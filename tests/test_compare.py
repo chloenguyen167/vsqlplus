@@ -171,3 +171,43 @@ assert got["tasql"][0]["calls"] == 3 and got["vsql"][0]["calls"] == 2 and got["v
 summary = (out / "summary.md").read_text()
 assert "So cau hoi chung cho moi cau hinh: **8**" in summary
 print("\nTAT CA KIEM THU (so sanh) DAT.", ex)
+
+# 8. Ollama tra loi 500 lap lai o mot prompt: ghi nhan cau tra loi rong, khong dung ca lan chay; loi khac van chay tiep
+import http.server  # noqa: E402
+import threading  # noqa: E402
+import vsql.llm as L  # noqa: E402
+
+
+class _H(http.server.BaseHTTPRequestHandler):
+    calls = Counter()
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        p = body["messages"][-1]["content"]
+        _H.calls[p] += 1
+        if "BOOM" in p or ("FLAKY" in p and _H.calls[p] == 1):
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(b'{"error":"model runner has unexpectedly stopped"}')
+            return
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(json.dumps({"message": {"content": "```sql\nSELECT 1\n```"}, "prompt_eval_count": 5,
+                                     "eval_count": 3}).encode())
+
+    def log_message(self, *a):
+        pass
+
+
+srv = http.server.HTTPServer(("127.0.0.1", 0), _H)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+L.time.sleep = lambda s: None                                     # khong cho that khi thu lai
+llm = L.OllamaLLM("m", f"http://127.0.0.1:{srv.server_port}", str(tmp / "c.sqlite"))
+r = llm.chat("BOOM prompt")
+assert r["text"] == "" and r["llm_error"].startswith("500") and _H.calls["BOOM prompt"] == 3, (r, _H.calls)
+assert llm.chat("BOOM prompt")["llm_error"] and _H.calls["BOOM prompt"] == 3     # da ghi nhan, khong goi lai
+r = llm.chat("FLAKY prompt")
+assert r["text"].startswith("```sql") and _H.calls["FLAKY prompt"] == 2          # loi 1 lan -> thu lai thanh cong
+assert llm.forget_errors() == 1 and llm.cached("BOOM prompt") is None
+srv.shutdown()
+print("KIEM THU LOI OLLAMA DAT.")

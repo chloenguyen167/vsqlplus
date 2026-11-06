@@ -285,6 +285,7 @@ Các trường chính trong `predictions_<cấu hình>.jsonl`:
 | Bước 6 / 9: `CUDA out of memory`, Ollama rất chậm | Mỗi phiên chỉ chạy một model, giữ `WORKERS = 1`; Runtime → Restart session rồi chạy lại từ Bước 1 |
 | `[canh bao] khong goi duoc embedding ...` | V-SQL+ tự chuyển sang chỉ BM25 (kết quả vẫn hợp lệ nhưng khác cấu hình chuẩn). Chạy `!ollama pull nomic-embed-text`, rồi chạy lại Bước 9 với **thư mục kết quả mới**, hoặc xóa `predictions_vsqlplus*.jsonl` trước khi chạy lại |
 | `[CANH BAO] prompt cham nguong num_ctx` | Prompt bị cắt. Thêm `--num-ctx 24576` vào lệnh ở Bước 9 |
+| `[Ollama 500] ... -> thu lai` rồi `[LOI LLM] Ollama 500 ... -> ghi nhan cau tra loi rong` | Một prompt làm Ollama lỗi lặp lại. Chương trình thử lại 3 lần, sau đó tính câu đó là sai cho phương pháp tương ứng và chạy tiếp. Cuối lần chạy in số câu bị ảnh hưởng của mỗi phương pháp. Xem nguyên nhân: `!grep -iE "error|panic|fault" /content/ollama.log \| tail -20`. Muốn thử lại các prompt đó: thêm `--retry-llm-errors` vào lệnh ở Bước 9 |
 | `ConnectionRefusedError` / `URLError` ở Bước 9 | Máy chủ Ollama đã dừng (thường sau khi Restart session); chạy lại Bước 6 rồi Bước 9 |
 | Bước 10 in `Chưa có kết quả cho ...` | Chưa chạy Bước 9 cho model đó, hoặc chưa khôi phục từ Drive (chạy Bước 7) |
 | `n` < 500 trong bảng kết quả | Lần chạy chưa xong; chạy lại Bước 9 |

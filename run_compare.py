@@ -45,6 +45,8 @@ def parse_args(argv=None):
     a.add_argument("--think", action="store_true")
     a.add_argument("--workers", type=int, default=1, help="so luong goi Ollama song song (can OLLAMA_NUM_PARALLEL >= workers)")
     a.add_argument("--no-prefetch", action="store_true")
+    a.add_argument("--retry-llm-errors", action="store_true",
+                   help="thu lai cac prompt truoc do bi Ollama bao loi (mac dinh: giu cau tra loi rong da ghi nhan)")
     # du lieu
     a.add_argument("--limit", type=int, default=0)
     a.add_argument("--sample", type=int, default=0, help="lay mau phan tang N cau theo (db, do kho)")
@@ -139,7 +141,10 @@ def prefetch(llm, jobs, ctxs, args, out):
 
         def work(chunk):
             for p, o in chunk:
-                llm.chat(p, **json.loads(o))
+                try:
+                    llm.chat(p, **json.loads(o))
+                except Exception as e:  # noqa: BLE001 - mot prompt loi khong duoc lam dung ca luong
+                    print(f"[prefetch] loi o mot prompt, bo qua trong vong nay: {type(e).__name__}: {e}", flush=True)
                 with lock:
                     state["done"] += 1
                     d, el = state["done"], time.time() - state["t0"]
@@ -215,6 +220,8 @@ def main(argv=None, llm=None):
 
     if args.selection_sweep:
         return selection_sweep(data, ctxs, llm, args, out)
+    if args.retry_llm_errors and hasattr(llm, "forget_errors"):
+        print(f"[retry-llm-errors] xoa {llm.forget_errors()} cau tra loi loi khoi cache de thu lai")
 
     (out / "config.json").write_text(json.dumps(vars(args), indent=1))
 
@@ -248,6 +255,12 @@ def main(argv=None, llm=None):
                 n, ok = n + 1, ok + rec["correct"]
                 if n % 50 == 0:
                     print(f"[{m}] {n}/{len(data) - len(done)}  EX tam thoi = {100 * ok / n:.1f}", flush=True)
+    for m in methods:
+        p = out / f"predictions_{m}.jsonl"
+        n_err = sum(json.loads(l).get("llm_errors", 0) > 0 for l in p.read_text(encoding="utf-8").splitlines() if l.strip())
+        if n_err:
+            print(f"[LOI LLM] {m}: {n_err} cau co it nhat mot loi goi LLM (tinh la sai). Xem /content/ollama.log; "
+                  f"chay lai voi --retry-llm-errors de thu lai.")
     print(report.build(out, refs=[r for r in ("tasql", "vsql", "base") if r in methods]))
     print(f"\nDa ghi: {out / 'summary.md'}, {out / 'summary.csv'}")
 

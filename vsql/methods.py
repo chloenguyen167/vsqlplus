@@ -196,6 +196,8 @@ class Asker:
                 return
             self.seen.add(key)
         self.rec["calls"] += 1
+        if r.get("llm_error"):
+            self.rec["llm_errors"] = self.rec.get("llm_errors", 0) + 1
         self.rec["prompt_tokens"] += r["prompt_tokens"]
         self.rec["completion_tokens"] += r["completion_tokens"]
         self.rec["llm_seconds"] += r["seconds"]
