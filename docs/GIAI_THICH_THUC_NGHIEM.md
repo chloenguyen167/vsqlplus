@@ -116,7 +116,7 @@ chia theo độ khó: 148 câu dễ (simple), 250 câu trung bình (moderate), 1
 >   chạy SQL đáp án. Không cần câu SQL giống hệt, chỉ cần ra cùng một tập dòng kết quả. Đây là thước đo chính của BIRD và của
 >   bài báo.
 
-*Đính chính (11/2026):* các bảng kết quả trong tài liệu này tính trên **498 câu** do mã cũ gộp các dòng theo `question_id`. Bộ mini-dev có **500 dòng**: `question_id` 137 và 138 mỗi mã xuất hiện hai lần (dòng 484≡487, 485≡488, nội dung giống hệt), và bộ chấm chính thức của BIRD cũng như Bảng 2 của paper (148/250/102) đều tính đủ 500. Mã mới (`run_compare.py`, `run_experiment.py`) định danh câu theo vị trí nên tính đủ 500 câu. Xem `docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`.
+*Đính chính (11/2026):* các bảng kết quả trong tài liệu này dùng bản mini-dev 2024 (zip OSS), trong đó `question_id` 137 và 138 mỗi mã lặp 2 lần; mã cũ gộp theo `question_id` nên tính trên **498 câu**. Bản sửa 2025-07-04 trên Hugging Face có đủ 500 câu khác nhau. Xem mục 1.1 của `docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`.
 
 ---
 

@@ -11,15 +11,26 @@ vẫn giữ nguyên để đối chiếu.
 
 ## 1. Kiểm tra phần tái hiện cũ
 
-### 1.1 Bộ dữ liệu: 500 câu, không phải 498
+### 1.1 Bộ dữ liệu: hai phiên bản mini-dev
 
-`mini_dev_sqlite.json` có **500 dòng**. Trong đó `question_id` 137 và 138 mỗi mã xuất hiện hai lần (dòng 484 ≡ 487 và
-485 ≡ 488, nội dung giống hệt nhau, cùng là câu `moderate` của `financial`). Đây là dữ liệu gốc của BIRD, không phải lỗi
-tải về. Bộ chấm chính thức của BIRD chấm theo vị trí dòng (500 dòng), và Bảng 2 của paper đếm 148 + 250 + 102 = 500.
+Đã kiểm tra trực tiếp trên nguồn (06/11/2026):
 
-Mã cũ dùng `question_id` làm khóa (`report.load`: `{r["qid"]: r}`), nên hai cặp dòng bị gộp thành 498. **Đây là lỗi của mã,
-không phải của dữ liệu.** Mã mới định danh mỗi câu bằng vị trí dòng (`uid` = 0..499), nên tính đủ 500 câu; đã sửa cả trong
-`run_experiment.py` và `vsql/report.py`.
+| | `2024-06` — zip gốc trên OSS | `2025-07-04` — bản sửa trên Hugging Face |
+|---|---|---|
+| Nguồn | https://bird-bench.oss-cn-beijing.aliyuncs.com/minidev.zip (Last-Modified 20/06/2024), link "Alibaba" trong README của https://github.com/bird-bench/mini_dev | https://huggingface.co/datasets/birdsql/bird_mini_dev, commit `f65faf4ae3b638c1fa6df1d3370c8d92c8366301`, file `data/mini_dev_sqlite-00000-of-00001.json` (nay lưu ở `archive/bird_mini_dev_2025-07-04/`) |
+| md5 `mini_dev_sqlite.json` | `a84c72cad3a21d74d0f45ae21d63bb83`; **trùng từng byte với bản trong repo** | `595b6b014a528f4386d2e16f74d14b40` |
+| Số dòng / câu khác nhau | 500 / **498**: `question_id` 137 và 138 mỗi mã lặp 2 lần | 500 / **500** |
+| Khác biệt | — | có thêm câu 119, 120 (`financial`, `moderate`) thay cho 2 bản lặp; sửa SQL đáp án câu 1322 (`student_club`) và 879 (`formula_1`); khác thứ tự ở 16/500 vị trí |
+| Độ khó | 148 / 250 / 102 | 148 / 250 / 102 |
+| CSDL, `dev_tables.json` | giống nhau | giống nhau; 500/500 SQL đáp án chạy được trên `dev_databases` của zip (câu 701 chậm ở cả hai bản) |
+
+Như vậy bản trong repo đúng là bản gốc 2024 trên OSS. Bản này có 2 câu lặp, còn bản 2025 trên Hugging Face (mà README
+chính thức coi là bản chuẩn) thì không. Bản Hugging Face hiện hành (cập nhật 2026-10) là bộ câu hỏi đã viết lại nhiều (độ khó
+8/32/460), không so được với paper. Paper không ghi link hay phiên bản dữ liệu, và Bảng 2 (148/250/102) khớp cả hai bản.
+
+Notebook cho chọn phiên bản (`DATASET`), mặc định `2025-07-04`, kèm kiểm tra md5. Mỗi phiên bản ghi kết quả vào thư mục riêng
+(`cmp_<model>_d2025` cho bản 2025, `cmp_<model>` cho bản 2024). Mã cũ gộp kết quả theo `question_id` nên với bản 2024 chỉ còn 498.
+Mã mới định danh mỗi câu theo vị trí dòng (`uid`), nên luôn chấm đủ 500 dòng.
 
 ### 1.2 Baseline sai đối tượng
 

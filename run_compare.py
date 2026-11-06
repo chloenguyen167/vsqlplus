@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """So sanh TA-SQL, V-SQL (dung theo paper) va V-SQL+ (cai tien) tren BIRD mini-dev, cung mot LLM chay qua Ollama.
 
-Moi cau hoi duoc dinh danh theo VI TRI trong file du lieu (uid = 0..499), nen tinh du 500 cau nhu paper
-(file mini_dev_sqlite.json co 2 cap ban ghi giong het nhau o question_id 137 va 138; bo danh gia chinh thuc cua BIRD
-va Bang 2 cua paper (148/250/102) deu tinh ca hai, nen o day cung vay).
+Moi cau hoi duoc dinh danh theo VI TRI trong file du lieu (uid = 0..499), nen luon cham du 500 dong. Hai phien ban cau hoi:
+  2024-06    zip OSS goc: question_id 137, 138 moi ma lap 2 lan (498 cau khac nhau).
+  2025-07-04 ban sua tren Hugging Face (birdsql/bird_mini_dev, commit f65faf4): 500 cau khac nhau. Xem docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md.
 
 Vi du (tren Colab, xem notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb):
   python run_compare.py --data minidev/MINIDEV/mini_dev_sqlite.json --db-root minidev/MINIDEV/dev_databases \
@@ -174,6 +174,11 @@ def main(argv=None, llm=None):
     out = Path(args.out)
     (out / "views").mkdir(parents=True, exist_ok=True)
     data = load_data(args)
+    n_rows = len(data)
+    n_qid = len({it["question_id"] for it in data})
+    n_text = len({(it["db_id"], it["question"]) for it in data})
+    print(f"[du lieu] {n_rows} dong; {n_qid} question_id khac nhau; {n_text} cau hoi (db, question) khac nhau. "
+          f"Moi DONG duoc tinh mot lan (dinh danh theo vi tri), nen tong so cau = {n_rows}.", flush=True)
     by_db = defaultdict(list)
     for it in data:
         by_db[it["db_id"]].append(it["SQL"])           # view cua V-SQL (paper) nhin JOIN cua toan bo dap an DB
@@ -255,6 +260,14 @@ def main(argv=None, llm=None):
                 n, ok = n + 1, ok + rec["correct"]
                 if n % 50 == 0:
                     print(f"[{m}] {n}/{len(data) - len(done)}  EX tam thoi = {100 * ok / n:.1f}", flush=True)
+    full = not (args.limit or args.sample or args.db)
+    for m in methods:
+        got = {json.loads(l)["uid"] for l in (out / f"predictions_{m}.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()}
+        want = {it["uid"] for it in data}
+        tag = "DU" if got >= want else "THIEU"
+        print(f"[KIEM TRA] {m}: {len(got & want)}/{len(want)} dong da cham{' (' + tag + ')' if full else ''}", flush=True)
+        if full and got < want:
+            print(f"[CANH BAO] {m} chua cham du {n_rows} dong; chay lai de hoan tat.", flush=True)
     for m in methods:
         p = out / f"predictions_{m}.jsonl"
         n_err = sum(json.loads(l).get("llm_errors", 0) > 0 for l in p.read_text(encoding="utf-8").splitlines() if l.strip())

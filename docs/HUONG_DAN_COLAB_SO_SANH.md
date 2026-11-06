@@ -1,8 +1,8 @@
 # Hướng dẫn chạy so sánh TA-SQL · V-SQL · V-SQL+ trên Google Colab (GPU T4)
 
 Tài liệu này hướng dẫn từng bước chạy notebook
-[`notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`](../notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb) với ba model
-`qwen3.5:0.8b`, `qwen3:8b`, `qwen3.5:9b`. Toàn bộ thực nghiệm chạy trên Colab, không cần cài gì trên máy cá nhân.
+[`notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`](../notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb) với các model Qwen
+(mặc định `qwen3.5:0.8b`, `qwen3.5:4b`, `qwen3.5:9b`). Toàn bộ thực nghiệm chạy trên Colab, không cần cài gì trên máy cá nhân.
 
 Nội dung thực nghiệm và lý do thiết kế xem ở [`TAI_HIEN_DUNG_VA_VSQLPLUS.md`](TAI_HIEN_DUNG_VA_VSQLPLUS.md).
 
@@ -18,8 +18,7 @@ Nội dung thực nghiệm và lý do thiết kế xem ở [`TAI_HIEN_DUNG_VA_VS
 | Bước 9: chạy chính | Colab | 0.8b: ~1–2 giờ; 8b / 9b: ~6–10 giờ mỗi model |
 | Bước 10 → 12: xem kết quả, tải về | Colab | 2 phút |
 
-**Khuyến nghị:** mỗi phiên Colab chỉ chạy **một model**, theo thứ tự `qwen3.5:0.8b` (nhanh, để kiểm tra toàn bộ quy trình)
-→ `qwen3:8b` → `qwen3.5:9b`. Kết quả lưu vào Google Drive. Nếu phiên bị ngắt thì chạy lại, phần đã xong không phải chạy lại.
+**Model mặc định:** `qwen3.5:0.8b`, `qwen3.5:4b`, `qwen3.5:9b`, chạy lần lượt trong cùng phiên. Có thể tick thêm/bớt model trong danh sách ở Bước 1. Kết quả lưu vào Google Drive; nếu phiên bị ngắt (giới hạn ~12 giờ) thì chạy lại, phần đã xong không phải chạy lại.
 
 ---
 
@@ -67,7 +66,9 @@ Chạy từng ô bằng nút ▶ bên trái ô, hoặc `Shift + Enter`. **Chạy
 
 | Tham số | Ý nghĩa | Gợi ý |
 |---|---|---|
-| `CHAY_qwen35_08b`, `CHAY_qwen3_8b`, `CHAY_qwen35_9b` | Model chạy trong phiên này. Nếu chọn nhiều, các model chạy lần lượt | Tick **một** model mỗi phiên |
+| Danh sách model (`qwen3_5_0_8b`, `qwen3_5_2b`, `qwen3_5_4b`, `qwen3_5_9b`, `qwen3_4b`, `qwen3_8b`, `qwen3_14b`) | Tick được nhiều model; các model chạy lần lượt theo thứ tự trong danh sách | Mặc định đã tick `qwen3.5:0.8b`, `qwen3.5:4b`, `qwen3.5:9b`. Nếu chạy 500 câu mà phiên bị ngắt thì chạy lại, hoặc tick ít model hơn mỗi phiên |
+| `MODEL_KHAC` | Tên model Ollama khác, cách nhau bằng dấu phẩy | Để trống nếu không cần. Tên sai thì Bước 6 báo lỗi ở `ollama pull` |
+| `DATASET` | Phiên bản câu hỏi BIRD mini-dev: `2025-07-04` (Hugging Face, 500 câu khác nhau) hoặc `2024-06` (zip OSS gốc, có 2 câu lặp `question_id` 137/138). Bảng so sánh hai bản nằm ngay trên ô Bước 1 và ở mục 1.1 của `TAI_HIEN_DUNG_VA_VSQLPLUS.md` | Giữ `2025-07-04`. Mỗi bản ghi kết quả vào thư mục riêng |
 | `SAMPLE` | `0` = đủ 500 câu như paper. Số khác = lấy mẫu phân tầng theo CSDL × độ khó | `0` khi chạy thật; `50` nếu chỉ muốn thử nhanh |
 | `ABLATION` | Chạy thêm 5 biến thể đối chiếu của V-SQL+ (chỉ hướng 1, bỏ bầu chọn, bỏ liên kết giá trị, bỏ schema lai, giải mã tất định) | Bật nếu cần bảng đóng góp của từng thành phần; tốn thêm khoảng 40% thời gian |
 | `EMBED_MODEL` | Mô hình embedding cho truy hồi lai của V-SQL+ | Giữ `nomic-embed-text`. Để trống thì V-SQL+ chỉ dùng BM25 |
@@ -99,15 +100,19 @@ Nếu có `AssertionError` hoặc `No such file`, thường là mã trên GitHub
 
 ### Bước 4. Tải BIRD mini-dev và mô tả cột của TA-SQL (~2–5 phút lần đầu)
 
-- Tải `minidev.zip` (~800 MB) từ máy chủ BIRD, giải nén phần SQLite vào `/content/data/minidev/MINIDEV`. Lần đầu bản zip
-  được chép vào Drive (`MyDrive/vsqlplus_ketqua/minidev.zip`), các lần sau lấy từ Drive nên nhanh hơn.
+- Tải `minidev.zip` (~800 MB) từ máy chủ OSS của BIRD, giải nén phần SQLite vào `/content/data/minidev/MINIDEV` (CSDL,
+  `dev_tables.json`, mô tả cột, câu hỏi bản 2024). Lần đầu bản zip được chép vào Drive (`MyDrive/vsqlplus_ketqua/minidev.zip`),
+  các lần sau lấy từ Drive nên nhanh hơn.
+- Nếu `DATASET = "2025-07-04"`: tải file câu hỏi bản 2025 từ Hugging Face (ghim theo commit). Ô kiểm tra md5 để chắc đúng phiên bản.
 - Tải `column_meaning.json` từ repo chính thức của TA-SQL (mô tả cột mà TA-SQL dùng trong prompt).
 
-**Kết quả mong đợi:**
+**Kết quả mong đợi** với bản 2025:
 ```
-500 dòng dữ liệu (tính đủ, kể cả question_id 137/138 xuất hiện hai lần như bộ đánh giá chính thức); 11 CSDL
+Dữ liệu 2025-07-04: 500 dòng; 500 question_id khác nhau; 500 câu hỏi khác nhau; độ khó {'simple': 148, 'moderate': 250, 'challenging': 102} ; 11 CSDL
 column_meaning.json: 699 cột
 ```
+Với bản 2024 thì dòng đầu là `500 dòng; 498 question_id khác nhau; 498 câu hỏi khác nhau`. Nếu thấy `File câu hỏi không khớp
+phiên bản` thì xóa file trong `/content/data/minidev/MINIDEV/` rồi chạy lại ô.
 
 ### Bước 5. Sinh view và đo độ phủ bước chọn view (~2 phút, không gọi LLM)
 
@@ -148,9 +153,10 @@ Thư mục kết quả trên Drive:
 
 | Model | Thư mục |
 |---|---|
-| `qwen3.5:0.8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_08b/` |
-| `qwen3:8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen3_8b/` |
-| `qwen3.5:9b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_9b/` |
+| `qwen3.5:0.8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_08b_d2025/` (bản 2024: không có `_d2025`) |
+| `qwen3.5:4b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_4b_d2025/` |
+| `qwen3:8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen3_8b_d2025/` |
+| `qwen3.5:9b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_9b_d2025/` |
 
 ### Bước 8. Chạy thử 3 câu × 3 phương pháp (~2–5 phút)
 
@@ -181,6 +187,7 @@ Dòng tiến độ có dạng:
 | Model | 3 phương pháp | Có `ABLATION` |
 |---|---|---|
 | `qwen3.5:0.8b` | ~1–2 giờ | ~1,5–3 giờ |
+| `qwen3.5:4b` | ~3–6 giờ | ~4–8 giờ |
 | `qwen3:8b` | ~6–10 giờ | ~8–14 giờ |
 | `qwen3.5:9b` | ~6–10 giờ | ~8–14 giờ |
 
@@ -239,7 +246,7 @@ mất đi tối đa là khoảng 5 phút cuối trước khi ngắt (chu kỳ sa
 
 ## 5. Gộp kết quả 3 model (sau khi đã chạy xong cả 3, mỗi model một phiên)
 
-Chạy Bước 1 với **cả 3 ô model được tick**, chạy Bước 2 và Bước 3, **bỏ qua Bước 4 → 9**, chạy Bước 7 (để khôi phục kết quả
+Chạy Bước 1 với **tất cả model đã chạy được tick**, chạy Bước 2 và Bước 3, **bỏ qua Bước 4 → 9**, chạy Bước 7 (để khôi phục kết quả
 từ Drive), rồi chạy Bước 10 và 11. Không cần GPU cho phần này. Bước 10–11 đọc kết quả có sẵn và in bảng chung cho cả 3 model.
 
 ---

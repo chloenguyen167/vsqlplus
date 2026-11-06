@@ -168,6 +168,13 @@ assert got["vsqlplus_novote"][0].get("vote") is None and got["vsqlplus_all"][0][
 assert got["vsqlplus_det"][0]["calls"] == 4 and got["vsqlplus"][0]["views_used"]
 assert got["tasql"][0]["calls"] == 3 and got["vsql"][0]["calls"] == 2 and got["vsqlplus"][0]["calls"] == 5, \
     (got["tasql"][0]["calls"], got["vsql"][0]["calls"], got["vsqlplus"][0]["calls"])
+import io, contextlib  # noqa: E402
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):                  # chay lai: da cham het, chi in cac dong kiem tra
+    run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "tasql,vsql",
+                      "--tables-json", str(tmp / "dev_tables.json"), "--no-embed"], llm=llm)
+o = buf.getvalue()
+assert "8 dong; 7 question_id khac nhau; 7 cau hoi" in o and "[KIEM TRA] tasql: 8/8 dong da cham (DU)" in o, o[:600]
 summary = (out / "summary.md").read_text()
 assert "So cau hoi chung cho moi cau hinh: **8**" in summary
 print("\nTAT CA KIEM THU (so sanh) DAT.", ex)
