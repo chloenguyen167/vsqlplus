@@ -70,12 +70,13 @@ Chạy từng ô bằng nút ▶ bên trái ô, hoặc `Shift + Enter`. **Chạy
 | `MODEL_KHAC` | Tên model Ollama khác, cách nhau bằng dấu phẩy | Để trống nếu không cần. Tên sai thì Bước 6 báo lỗi ở `ollama pull` |
 | `DATASET` | Phiên bản câu hỏi BIRD mini-dev: `2025-07-04` (Hugging Face, 500 câu khác nhau) hoặc `2024-06` (zip OSS gốc, có 2 câu lặp `question_id` 137/138). Bảng so sánh hai bản nằm ngay trên ô Bước 1 và ở mục 1.1 của `TAI_HIEN_DUNG_VA_VSQLPLUS.md` | Giữ `2025-07-04`. Mỗi bản ghi kết quả vào thư mục riêng |
 | `SAMPLE` | `0` = đủ 500 câu như paper. Số khác = lấy mẫu phân tầng theo CSDL × độ khó | `0` khi chạy thật; `50` nếu chỉ muốn thử nhanh |
+| `vsql`, `vsql_paper`, `vsql_fair`, `vsqlplus`, `vsqlplus_fig4` | Chọn phương pháp chạy (TA-SQL luôn chạy). `vsql` = V-SQL tái hiện bản hiện tại; `vsql_paper` = V-SQL với view sát Hình 3 (bỏ cột id khóa ngoại đã thay bằng giá trị, alias = tên bảng); `vsql_fair` = như `vsql_paper` nhưng chỉnh phần paper không nói cho ngang TA-SQL (hiện bảng không bị view thay thế, schema có giá trị mẫu); `vsqlplus` = V-SQL+ (2 hướng + prompt giai đoạn 1 mới); `vsqlplus_fig4` = V-SQL+ chỉ 2 hướng, template và cách trình bày schema y như `vsql_fair` | Mặc định chạy cả 5. Phương pháp đã chạy xong trong thư mục kết quả thì không chạy lại |
 | `ABLATION` | Chạy thêm 5 biến thể đối chiếu của V-SQL+ (chỉ hướng 1, bỏ bầu chọn, bỏ liên kết giá trị, bỏ schema lai, giải mã tất định) | Bật nếu cần bảng đóng góp của từng thành phần; tốn thêm khoảng 40% thời gian |
 | `EMBED_MODEL` | Mô hình embedding cho truy hồi lai của V-SQL+ | Giữ `nomic-embed-text`. Để trống thì V-SQL+ chỉ dùng BM25 |
 | `WORKERS` | Số luồng gọi Ollama song song | Giữ `1` (dùng lại KV cache tốt nhất trên một GPU) |
 | `LUU_DRIVE` | Lưu kết quả vào Google Drive | Luôn bật |
 
-Ba phương pháp so sánh chạy với mọi model: `tasql` (TA-SQL, baseline của paper), `vsql` (V-SQL theo paper), `vsqlplus` (V-SQL+).
+Phương pháp: `tasql` (TA-SQL, baseline của paper, luôn chạy) và các phương pháp được tick (`vsql`, `vsql_paper`, `vsqlplus`, `vsqlplus_fig4`).
 
 **Kết quả mong đợi:** `Model: ['qwen3.5:0.8b'] | cấu hình: main | số câu: 500`.
 

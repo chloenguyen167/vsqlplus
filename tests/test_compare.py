@@ -110,12 +110,21 @@ PLUS = ["SELECT COUNT(*) FROM v_superhero WHERE eye_colour = 'Blue'",
         "SELECT AVG(height_cm) FROM v_superhero WHERE publisher_id IS NULL"]
 
 
+from vsql.methods import P_VSQL_1  # noqa: E402
+FIG4 = '# target\nYou are an experienced database administrator, please answer "question" by sql'
+
+
 class ScriptLLM:
     def __init__(self):
         self.stages = Counter()
+        self.fig4 = 0
 
     def chat(self, prompt, meta=None, **opts):
         u, st = meta["qid"], meta["stage"]
+        if st.startswith("plus_") and prompt.startswith(FIG4):     # vsqlplus_fig4: template/schema y nhu V-SQL
+            self.fig4 += 1
+            assert "matched database values" not in prompt and "CREATE " not in prompt and ("# view: " in prompt or "# table: " in prompt)
+            assert prompt.startswith(P_VSQL_1.split("{relevant_db_schema}")[0])
         self.stages[st.rstrip("0123456789")] += 1
         k = u % len(ITEMS)
         gold = ITEMS[k]["gold"]
@@ -135,8 +144,12 @@ class ScriptLLM:
         elif st == "plus_s2":                                # khoi phuc hoan hao = mo rong tat dinh dummy SQL
             dummy = re.search(r"# view query\nQuestion: .*?\n```sql\n(.*?)\n```", prompt, re.S).group(1)
             sql = V.unfold(dummy, auto)[0]
+        elif st.startswith("plus_fb") and prompt.startswith(FIG4):
+            assert "# table: attribute" in prompt and "# note" not in prompt          # chi them bang goc, khong ghi chu
+            sql = ("SELECT COUNT(*) FROM v_hero_attribute WHERE attribute_name = 'Strength' AND attribute_value = 100 "
+                   "AND gender = 'Female'")
         elif st.startswith("plus_fb"):
-            assert "attribute.attribute_name" in prompt and "does not exist" in prompt
+            assert "attribute.attribute_name" in prompt and "does not exist" in prompt and "CREATE TABLE attribute" in prompt
             sql = ("SELECT COUNT(*) FROM v_hero_attribute WHERE attribute_name = 'Strength' AND attribute_value = 100 "
                    "AND gender = 'Female'")
         else:
@@ -175,6 +188,33 @@ with contextlib.redirect_stdout(buf):                  # chay lai: da cham het, 
                       "--tables-json", str(tmp / "dev_tables.json"), "--no-embed"], llm=llm)
 o = buf.getvalue()
 assert "8 dong; 7 question_id khac nhau; 7 cau hoi" in o and "[KIEM TRA] tasql: 8/8 dong da cham (DU)" in o, o[:600]
+# 9. hai phuong phap moi: vsql_paper (view kieu Hinh 3), vsqlplus_fig4 (2 huong, cung template Hinh 4 + Bang 6)
+pv = {v.name: v for v in V.validate(s, A.oracle_views(s, [it["gold"] for it in ITEMS], paper=True))}
+sh = pv["v_superhero"]
+nm = {c.name for c in sh.cols}       # chi bo cot khoa ngoai cua bang cha DA noi vao view (o day: colour, publisher)
+assert not nm & {"eye_colour_id", "hair_colour_id", "skin_colour_id", "publisher_id"} and {"id", "eye_colour", "publisher_name", "gender_id"} <= nm, nm
+assert " LEFT JOIN publisher ON " in sh.ddl() and " LEFT JOIN colour eye_colour ON " in sh.ddl() and " AS " not in sh.ddl().split(" FROM ")[1]
+assert all(v.verified == "rows_equal" for v in pv.values()), [(v.name, v.verified) for v in pv.values()]
+run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "vsql_paper,vsqlplus_fig4",
+                  "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
+                  "--all-max-objects", "0", "--all-max-tokens", "0", "--k-cand", "6", "--n-samples", "3"], llm=llm)
+g2 = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().splitlines()] for m in ["vsql_paper", "vsqlplus_fig4"]}
+assert len(g2["vsql_paper"]) == len(g2["vsqlplus_fig4"]) == 8 and llm.fig4 > 0
+assert g2["vsqlplus_fig4"][3]["fallback"] and g2["vsqlplus_fig4"][3]["fallback"][0]["added"] == ["attribute"]
+assert sum(r["correct"] for r in g2["vsqlplus_fig4"]) == 8, [r["outcome"] for r in g2["vsqlplus_fig4"]]
+assert (out / "views" / "superhero.oracle_paper.sql").exists()
+seen = []
+_orig = llm.chat
+def _spy(prompt, meta=None, **o):  # noqa: E302
+    seen.append((meta["stage"], prompt))
+    return _orig(prompt, meta, **o)
+llm.chat = _spy  # noqa: E305
+run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "vsql_fair",
+                  "--tables-json", str(tmp / "dev_tables.json"), "--no-embed"], llm=llm)
+s1 = [p for st, p in seen if st == "vsql_s1"]
+assert s1 and all(p.startswith(P_VSQL_1.split("{relevant_db_schema}")[0]) for p in s1)           # template Hinh 4
+assert "| value_description | example_values" in s1[0] and "# table: publisher" in s1[0]         # bang tra cuu van hien
+assert sum(json.loads(l)["correct"] for l in (out / "predictions_vsql_fair.jsonl").read_text().splitlines()) == 7   # cau ao giac Table 1 o gd2
 summary = (out / "summary.md").read_text()
 assert "So cau hoi chung cho moi cau hinh: **8**" in summary
 print("\nTAT CA KIEM THU (so sanh) DAT.", ex)

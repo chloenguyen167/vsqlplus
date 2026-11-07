@@ -101,7 +101,8 @@ def build(out_dir, ref="vsql", refs=None):
                              **{f"ex_{d}": (100 * sum(v) / len(v) if v else "") for d, v in by.items()}))
 
     # ---- 2. so sanh ghep cap (voi vsql = paper, va voi base), p hieu chinh Holm trong moi bang
-    titles = {"vsql": "V-SQL theo paper", "tasql": "TA-SQL, baseline cua paper", "base": "baseline 1 giai doan"}
+    titles = {"vsql": "V-SQL theo paper", "tasql": "TA-SQL, baseline cua paper", "base": "baseline 1 giai doan",
+              "vsql_paper": "V-SQL sat Hinh 3", "vsql_fair": "V-SQL chinh phan paper khong noi"}
     refs = [x for x in (refs or (ref, "base")) if x in res]
     for k, rf in enumerate(refs):
         title = titles.get(rf, rf)
@@ -173,7 +174,14 @@ def build(out_dir, ref="vsql", refs=None):
              ("Huong 2 - bau chon nhieu mau", "vsqlplus", "vsqlplus_novote"),
              ("Huong 2 - lien ket gia tri", "vsqlplus", "vsqlplus_novl"),
              ("Huong 2 - schema lai", "vsqlplus", "vsqlplus_nofb"),
-             ("Giai doan 2 LLM (paper) so voi giai ma tat dinh", "vsqlplus", "vsqlplus_det")]
+             ("Giai doan 2 LLM (paper) so voi giai ma tat dinh", "vsqlplus", "vsqlplus_det"),
+             ("V-SQL sat Hinh 3 so voi V-SQL hien tai", "vsql_paper", "vsql"),
+             ("V-SQL sat Hinh 3 so voi TA-SQL", "vsql_paper", "tasql"),
+             ("V-SQL chinh phan paper khong noi so voi TA-SQL", "vsql_fair", "tasql"),
+             ("Chinh phan paper khong noi (so voi V-SQL sat Hinh 3)", "vsql_fair", "vsql_paper"),
+             ("2 huong cai tien, cung template + schema (so voi vsql_fair)", "vsqlplus_fig4", "vsql_fair"),
+             ("2 huong cai tien, cung prompt Hinh 4 (so voi TA-SQL)", "vsqlplus_fig4", "tasql"),
+             ("Tac dung rieng cua prompt gd1 moi (V-SQL+ hien tai so voi ban Hinh 4)", "vsqlplus", "vsqlplus_fig4")]
     md += ["\n## 5. Dong gop rieng cua tung cai tien\n", "| Yeu to | So sanh | dEX |", "|---|---|---|"]
     for name, a, b in pairs:
         if ex(a) is not None and ex(b) is not None:

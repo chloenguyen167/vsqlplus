@@ -21,7 +21,7 @@ from vsql import report
 from vsql import views as V
 from vsql.db import run_sql, tables_in_sql
 from vsql.llm import OllamaLLM, OpenAICompatLLM
-from vsql.methods import ABLATIONS, MAIN, NOTES, DbCtx, load_meaning, load_tables_json, run_item, score
+from vsql.methods import ABLATIONS, EXTRA, MAIN, NOTES, DbCtx, load_meaning, load_tables_json, run_item, score
 
 
 def parse_args(argv=None):
@@ -32,7 +32,7 @@ def parse_args(argv=None):
     a.add_argument("--tasql-meaning", default="", help="column_meaning.json cua TA-SQL (khong co: dung mo ta CSV)")
     a.add_argument("--out", default="results/cmp")
     a.add_argument("--methods", default="main",
-                   help="main (tasql,vsql,vsqlplus) | all (+ ablation) | danh sach, vd: " + ",".join(MAIN + ABLATIONS + ["base"]))
+                   help="main (tasql,vsql,vsqlplus) | all (+ ablation) | danh sach, vd: " + ",".join(MAIN + EXTRA + ABLATIONS + ["base"]))
     # LLM
     a.add_argument("--model", default="qwen3:8b")
     a.add_argument("--backend", default="ollama", choices=["ollama", "openai"])
@@ -121,6 +121,32 @@ class _Recorder:
         return self.llm.embed(*a)
 
 
+# loai prompt (theo phan dau) va do dai tuong doi du kien cua cau tra loi; dung de uoc luong thoi gian con lai khi chua do
+# duoc loai do (TA-SQL SR->SQL hay viet giai thich toi 800 token: ~8 lan prompt ngan, do tren qwen3.5:9b)
+_KINDS = [("# Understand the pandas-like SR", "TA-SQL SR->SQL", 8.0), ("#SR is a piece", "TA-SQL sinh SR", 3.0),
+          ("# the key is the table", "TA-SQL TASL", 2.0), ("# target\nAccording to", "giai doan 2 (Hinh 5)", 1.0),
+          ("# target\nYou are an experienced database administrator, please answer \"question\" by sql", "V-SQL gd1 / V-SQL+ Hinh 4", 1.0),
+          ("# target\nYou are an experienced database administrator, please answer \"question\" by ONE", "V-SQL+ gd1", 1.0)]
+
+
+def _kind(prompt):
+    return next(((name, w) for head, name, w in _KINDS if prompt.startswith(head)), ("khac", 1.0))
+
+
+def _eta(stats, left):
+    """stats: {loai: [so_da_xong, tong_giay, trong_so]}; left: {loai: so_con_lai}. Loai da do (>= 3 prompt) dung toc do do
+    duoc; loai chua do dung trong so tuong doi nhan voi toc do trung binh tren moi don vi trong so cua cac loai da do."""
+    done = [v for v in stats.values() if v[0]]
+    if not done:
+        return 0.0
+    per_w = sum(v[1] for v in done) / sum(v[0] * v[2] for v in done)
+    total = 0.0
+    for k, n in left.items():
+        d, sec, w = stats[k]
+        total += n * (sec / d if d >= 3 else per_w * w)
+    return total
+
+
 def prefetch(llm, jobs, ctxs, args, out):
     """Goi truoc moi prompt con thieu theo tung vong (TA-SQL 3 vong, V-SQL 2, V-SQL+ toi da 4). Prompt sap theo thu tu chu
     de cac prompt chung tien to (cung schema) dung lien nhau -> Ollama dung lai KV cache. Ket qua tung cau KHONG doi."""
@@ -138,22 +164,36 @@ def prefetch(llm, jobs, ctxs, args, out):
         chunks = [todo[i * n // w:(i + 1) * n // w] for i in range(w)]
         state = dict(done=0, t0=time.time())
         lock = threading.Lock()
+        left = {}
+        stats = {}
+        for p, _ in todo:
+            k, wt = _kind(p)
+            left[k] = left.get(k, 0) + 1
+            stats.setdefault(k, [0, 0.0, wt])
 
         def work(chunk):
             for p, o in chunk:
+                k = _kind(p)[0]
+                t1 = time.time()
                 try:
                     llm.chat(p, **json.loads(o))
                 except Exception as e:  # noqa: BLE001 - mot prompt loi khong duoc lam dung ca luong
                     print(f"[prefetch] loi o mot prompt, bo qua trong vong nay: {type(e).__name__}: {e}", flush=True)
                 with lock:
                     state["done"] += 1
+                    stats[k][0] += 1
+                    stats[k][1] += time.time() - t1
+                    left[k] -= 1
                     d, el = state["done"], time.time() - state["t0"]
+                    eta = _eta(stats, left) / w
                     (out / "prefetch_progress.json").write_text(json.dumps(
-                        dict(round=rnd, done=d, total=n, elapsed=el, eta=el / d * (n - d), updated=time.time())))
+                        dict(round=rnd, done=d, total=n, elapsed=el, eta=eta, updated=time.time())))
                     if d % 25 == 0 or d == n:
-                        print(f"[prefetch vong {rnd}] {d}/{n}  con lai ~{el / d * (n - d) / 60:.0f} phut", flush=True)
+                        print(f"[prefetch vong {rnd}] {d}/{n}  con lai ~{eta / 60:.0f} phut (uoc luong theo toc do tung loai prompt)",
+                              flush=True)
 
-        print(f"[prefetch vong {rnd}] {n} prompt can goi LLM, {w} luong", flush=True)
+        print(f"[prefetch vong {rnd}] {n} prompt can goi LLM, {w} luong: "
+              + ", ".join(f"{k} {v}" for k, v in sorted(left.items(), key=lambda x: -x[1])), flush=True)
         ths = [threading.Thread(target=work, args=(c,)) for c in chunks]
         for t in ths:
             t.start()
@@ -202,7 +242,9 @@ def main(argv=None, llm=None):
     ctxs, stats = {}, {}
     for db in sorted({it["db_id"] for it in data}):
         c = ctxs[db] = DbCtx(db, Path(args.db_root) / db, by_db[db], args, tables_json, meaning)
-        for src, vs in (("oracle", c.oracle), ("auto", c.auto)):
+        srcs = [("oracle", c.oracle), ("auto", c.auto)] + (
+            [("oracle_paper", c.oracle_paper)] if {"vsql_paper", "vsql_fair"} & set(methods) else [])
+        for src, vs in srcs:
             (out / "views" / f"{db}.{src}.sql").write_text(
                 "\n\n".join(f"-- origin={v.origin} row_preserving={v.row_preserving} check={v.verified}\n{v.ddl()}"
                             for v in vs) + "\n", encoding="utf-8")
@@ -274,7 +316,7 @@ def main(argv=None, llm=None):
         if n_err:
             print(f"[LOI LLM] {m}: {n_err} cau co it nhat mot loi goi LLM (tinh la sai). Xem /content/ollama.log; "
                   f"chay lai voi --retry-llm-errors de thu lai.")
-    print(report.build(out, refs=[r for r in ("tasql", "vsql", "base") if r in methods]))
+    print(report.build(out, refs=[r for r in ("tasql", "vsql", "vsql_paper", "vsql_fair", "base") if r in methods]))
     print(f"\nDa ghi: {out / 'summary.md'}, {out / 'summary.csv'}")
 
 

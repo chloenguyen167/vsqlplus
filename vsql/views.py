@@ -35,6 +35,7 @@ class View:
     verified: str = "unverified"
     raw_sql: str = None
     raw_sources: set = None
+    paper: bool = False              # view kieu Hinh 3 cua paper: khong viet "AS alias" khi alias trung ten bang
 
     def source_tables(self):
         if self.raw_sql:
@@ -58,7 +59,11 @@ class View:
             if needed is not None and j.alias not in keep:
                 continue
             on = " AND ".join(f"{qi(j.parent)}.{qi(p)} = {qi(j.alias)}.{qi(c)}" for p, c in j.on)
-            sql += f" LEFT JOIN {qi(j.table)} AS {qi(j.alias)} ON {on}"
+            if self.paper:                          # Hinh 3: `left join colour eye_colour`, `left join gender`
+                alias = "" if j.alias == j.table else f" {qi(j.alias)}"
+            else:
+                alias = f" AS {qi(j.alias)}"
+            sql += f" LEFT JOIN {qi(j.table)}{alias} ON {on}"
         return sql
 
     def ddl(self):

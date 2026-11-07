@@ -34,9 +34,10 @@ def _role(fk, n_same):
 
 
 class _Builder:
-    def __init__(self, schema, base, name, origin):
+    def __init__(self, schema, base, name, origin, paper=False):
         self.s = schema
-        self.v = V.View(name, base, origin)
+        self.paper = paper
+        self.v = V.View(name, base, origin, paper=paper)
         self.names = set()
         self.aliases = {base.lower()}
         for c in schema.tables[base].columns:
@@ -51,9 +52,11 @@ class _Builder:
 
     def join(self, parent_alias, fk, role, force_role):
         p = fk.ref_table
-        a, i = role, 2
-        while a.lower() in self.aliases or a.lower() in {t.lower() for t in self.s.tables if t != p}:
-            a, i = f"{role}_{i}", i + 1
+        # Hinh 3: bang chi noi mot lan thi dung chinh ten bang (khong alias); bang noi nhieu lan (colour) dung ten vai tro
+        a = p if self.paper and not force_role and p.lower() not in self.aliases else role
+        stem, i = a, 2
+        while a.lower() in self.aliases or (a != p and a.lower() in {t.lower() for t in self.s.tables if t != p}):
+            a, i = f"{stem}_{i}", i + 1
         self.aliases.add(a.lower())
         self.v.joins.append(V.Join(a, p, parent_alias, list(zip(fk.cols, fk.ref_cols))))
         cols = [c for c in self.s.tables[p].columns if c.name not in fk.ref_cols]
@@ -69,14 +72,17 @@ class _Builder:
         return a
 
 
-def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", lookup_cols=4):
+def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", lookup_cols=4, paper=False):
     """View N-1 cho bang `base`; allowed: chi noi toi cac bang trong tap nay (None = moi bang).
     Tu muc noi thu 2, view tu dong chi noi bang tra cuu co <= lookup_cols cot (vd colour, gender)."""
-    b = _Builder(schema, base, "v_" + base, origin)
+    b = _Builder(schema, base, "v_" + base, origin, paper)
 
     def expand(alias, table, d, path):
         fks = [fk for fk in schema.tables[table].fks
                if fk.ref_table not in path and (allowed is None or fk.ref_table in allowed) and schema.safe_fk(fk)]
+        if paper:                                   # Hinh 3: noi theo thu tu cot khoa ngoai trong bang
+            order = [c.name for c in schema.tables[table].columns]
+            fks.sort(key=lambda fk: order.index(fk.cols[0]) if fk.cols[0] in order else len(order))
         per_parent = {}
         for fk in fks:
             per_parent[fk.ref_table] = per_parent.get(fk.ref_table, 0) + 1
@@ -96,6 +102,11 @@ def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", 
                 expand(a, p, d - 1, path | {p})
 
     expand(base, base, depth, {base})
+    if paper and b.v.joins:
+        # Hinh 3: bo cot khoa ngoai da duoc thay bang gia tri cua bang cha (gender_id -> gender), giu khoa chinh bang goc
+        replaced = {(j.parent, c) for j in b.v.joins for c, _ in j.on}
+        keep_pk = set(schema.tables[base].pk)
+        b.v.cols = [c for c in b.v.cols if (c.alias, c.col) not in replaced or (c.alias == base and c.col in keep_pk)]
     return b.v if b.v.joins else None
 
 
@@ -104,7 +115,7 @@ def auto_views(schema, depth=2, max_cols=60):
     return [v for v in (build_view(schema, t, depth, None, max_cols, "auto") for t in schema.tables) if v]
 
 
-def oracle_views(schema, gold_sqls, max_cols=10 ** 6):
+def oracle_views(schema, gold_sqls, max_cols=10 ** 6, paper=False):
     """Tai hien paper: chi tao view cho cac bang 'goc' cua cac mau JOIN trong SQL dap an (tu do moi bang con lai deu
     toi duoc theo chieu N-1), noi toi cac bang cha xuat hien trong cac mau do. Mau JOIN co quan he 1-N (khong co bang
     goc) khong tao view: paper khong mo ta view nhan ban dong; cac bang do van co mat trong schema."""
@@ -118,7 +129,7 @@ def oracle_views(schema, gold_sqls, max_cols=10 ** 6):
             allowed.setdefault(roots[0], set()).update(S)
     out = []
     for root, S in sorted(allowed.items()):
-        v = build_view(schema, root, depth=len(S), allowed=S, max_cols=max_cols, origin="oracle")
+        v = build_view(schema, root, depth=len(S), allowed=S, max_cols=max_cols, origin="oracle", paper=paper)
         if v:
             out.append(v)
     return out

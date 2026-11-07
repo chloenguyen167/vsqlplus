@@ -96,6 +96,32 @@ Những điểm paper không công bố hoặc không nói rõ, nên phải ch�
 Việc D′ ẩn các bảng đã gộp vào view (vd `customers`, xem 1.3 ý 3) là thiết kế của paper nên được giữ nguyên trong `vsql`.
 V-SQL+ xử lý điểm này ở hướng 1.
 
+### 2.1b Hai bản V-SQL: `vsql` và `vsql_paper`
+
+| | `vsql` (bản hiện tại) | `vsql_paper` (sát Hình 3) |
+|---|---|---|
+| Tập bảng nối vào view | theo JOIN của SQL đáp án | như `vsql` |
+| Cột id khóa ngoại đã được thay bằng giá trị (`gender_id` khi đã nối `gender`) | giữ | **bỏ**, như Hình 3 (giữ khóa chính bảng gốc) |
+| Alias trong `CREATE VIEW` | luôn đặt theo vai trò (`superhero AS hero`) | **tên bảng**; chỉ bảng nối nhiều lần mới có alias, viết như Hình 3 (`left join colour eye_colour`) |
+| Thứ tự JOIN | theo khai báo khóa ngoại | theo thứ tự cột trong bảng (như Hình 3) |
+| Prompt, D′, cách trình bày schema | Hình 4 + Hình 5, Bảng 6 | như `vsql` |
+
+`v_superhero` của `vsql_paper` có đúng 12 cột như Hình 3. Không bản nào dùng prompt Hình 2: kết quả Bảng 3 của paper dùng view
+thiết kế tay theo JOIN đáp án (mục 6), mục 4.3 chỉ nói Hình 2 dùng để "hỗ trợ".
+
+### 2.1c `vsql_fair`: giữ phần paper quy định, chỉnh phần paper không nói
+
+| Paper quy định rõ → giữ nguyên | Paper không nói → chỉnh cho ngang TA-SQL |
+|---|---|
+| Hai giai đoạn; giai đoạn 2 do LLM khôi phục SQL (Hình 5) | **D′ của từng CSDL** (paper không công bố): các bảng không bị view nào thay thế vẫn hiện trong schema, nên câu hỏi về chính bảng `customers`, `gasstations`, `circuits`… không phải đi vòng qua view |
+| Prompt Hình 4 và Hình 5 nguyên văn | **Cách trình bày schema** (Bảng 6 chỉ là mô tả dataset): thêm cột `value_description` và `example_values` ("all possible values are […]" / "example values are […]"), tức đúng loại thông tin TA-SQL nhận được |
+| View kiểu Hình 3, thiết kế theo JOIN của đáp án (như `vsql_paper`) | Evidence: nối vào `{query}` (như mọi phương pháp) |
+| Nhiệt độ 0, top-p 1, tối đa 800 token; không self-consistency, không sửa lỗi | |
+
+Hai điểm được chỉnh này nhắm vào hai nguồn thua lớn nhất của V-SQL ở giai đoạn 1 với qwen3.5:4b: câu chỉ cần 1 bảng (V-SQL giai
+đoạn 1 đúng 21/86 câu, TA-SQL đúng 49/86), và thiếu giá trị mẫu khi lọc. Bất lợi lớn nhất là giai đoạn 2 thì **không chỉnh**, vì
+paper quy định rõ (LLM khôi phục theo Hình 5, không sửa lỗi). Chưa chạy, nên chưa biết `vsql_fair` có đạt ngang TA-SQL hay không.
+
 ### 2.2 TA-SQL (`tasql`) — baseline của paper
 
 Cài theo mã chính thức https://github.com/quge2023/TA-SQL (`src/modules.py`, `src/prompt_bank.py`):
@@ -173,6 +199,19 @@ giai đoạn 2 (như paper, Hình 5): LLM khôi phục dummy SQL về bảng g�
 | Bầu chọn nhiều mẫu | 4 dummy SQL trên 5 ứng viên; chọn tập view xuất hiện nhiều nhất, cộng các view có mặt trong hơn nửa số mẫu |
 | Schema lai | Dummy SQL dùng cột hoặc bảng không có trong view được cung cấp → thêm bảng gốc chứa cột đó vào prompt, kèm ghi chú cột đó nằm ở đâu, rồi sinh lại |
 | Ít view thì đưa hết | 6/11 CSDL đủ nhỏ để đưa hết; chỉ 5 CSDL lớn (card_games, codebase_community, european_football_2, formula_1, student_club; 266/500 câu) qua bước xếp hạng + bầu chọn |
+
+**Hai bản V-SQL+:**
+
+| | `vsqlplus` | `vsqlplus_fig4` |
+|---|---|---|
+| Hướng 1 (view tự động) + hướng 2 (chọn view) | có | có |
+| Template giai đoạn 1 | prompt mới (`P_PLUS`) | **Hình 4 nguyên văn**, như `vsql_fair` |
+| Trình bày schema | `CREATE VIEW` có nguồn gốc cột, mô tả, giá trị mẫu | **Bảng 6 mở rộng, như `vsql_fair`** (cả giai đoạn 2) |
+| Giá trị khớp trong DB | dùng để xếp hạng và ghi vào prompt | chỉ dùng để xếp hạng |
+| Schema lai | thêm bảng gốc + ghi chú cột nằm ở đâu | chỉ thêm bảng gốc |
+| Evidence | mục `# evidence` riêng | nối vào `{query}` như V-SQL |
+
+So sánh sạch nhất cho 2 hướng: `vsqlplus_fig4` − `vsql_fair`. Tác dụng riêng của prompt mới: `vsqlplus` − `vsqlplus_fig4`.
 
 **Các biến thể đối chiếu** (bật `ABLATION` trong notebook):
 

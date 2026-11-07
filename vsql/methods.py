@@ -38,7 +38,11 @@ NOTES = {
     "vsqlplus_novl": "V-SQL+ bo lien ket gia tri (huong 2)",
     "vsqlplus_nofb": "V-SQL+ bo schema lai (huong 2)",
     "vsqlplus_det": "V-SQL+ thay giai doan 2 bang giai ma tat dinh (ngoai de xuat, de doi chieu)",
+    "vsql_paper": "V-SQL sat Hinh 3: view bo cot khoa ngoai da thay bang gia tri, alias = ten bang; prompt Hinh 4 + Hinh 5",
+    "vsql_fair": "V-SQL dung phan paper quy dinh (Hinh 3/4/5); phan paper khong noi chinh cho ngang TA-SQL",
+    "vsqlplus_fig4": "V-SQL+ chi 2 huong (view tu dong + chon view); gd1/gd2 cung template + schema nhu vsql_fair",
 }
+EXTRA = ["vsql_paper", "vsql_fair", "vsqlplus_fig4"]                     # chay khi chon rieng (notebook: tick o tuong ung)
 MAIN = ["tasql", "vsql", "vsqlplus"]                      # so sanh chinh: TA-SQL (baseline cua paper), V-SQL, V-SQL+
 ABLATIONS = ["vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb", "vsqlplus_det"]
 
@@ -166,6 +170,13 @@ class DbCtx:
     @property
     def oracle(self):
         return self.lazy("oracle", lambda: V.validate(self.schema, A.oracle_views(self.schema, self.gold_sqls)))
+
+    @property
+    def oracle_paper(self):
+        """View cua V-SQL dung kieu Hinh 3: cung tap bang theo JOIN dap an, nhung bo cot khoa ngoai da duoc thay bang gia
+        tri cua bang cha (giu khoa chinh bang goc), alias = ten bang (chi bang noi nhieu lan moi co alias), noi theo thu tu cot."""
+        return self.lazy("oracle_paper", lambda: V.validate(
+            self.schema, A.oracle_views(self.schema, self.gold_sqls, paper=True)))
 
     @property
     def auto(self):
@@ -365,20 +376,71 @@ def vsql_query(item, args):
     return item["question"]
 
 
-def run_vsql(item, ctx, ask, rec, args):
+class Render6:
+    """Trinh bay schema kieu Bang 6 cua paper. extended=True (vsql_fair, vsqlplus_fig4): them 2 cot `value_description` va
+    `example_values` - paper khong quy dinh cach trinh bay schema trong prompt; them de ngang muc thong tin TA-SQL nhan duoc
+    (TA-SQL dua mo ta gia tri va "all possible values are [...]" / "example values are [...]")."""
+
+    def __init__(self, ctx, extended=False):
+        self.ctx, self.ext = ctx, extended
+
+    def _examples(self, t, c):
+        raw = self.ctx.desc.get(t, c).get("raw", {})
+        vp = self.ctx.lazy(("tavp", t, c), lambda: _tasql_value_prompt(self.ctx, t, c, raw.get("fmt", "")))
+        if vp:
+            return vp
+        ex = self.ctx.schema.samples.get((t, c), [])[:3]
+        return ("example values are " + str(list(ex))) if ex else ""
+
+    def _rows(self, triples):
+        """triples: [(ten_hien_thi, bang_nguon, cot_nguon, kieu)]"""
+        out = []
+        for shown, t, c, ctype in triples:
+            m = self.ctx.desc.get(t, c)
+            full = (m.get("full") or c) if shown.lower() == c.lower() else shown.replace("_", " ")
+            row = [shown, full, m.get("desc", ""), m.get("fmt") or (ctype or "").lower()]
+            if self.ext:
+                row += [m.get("values", ""), self._examples(t, c)]
+            out.append(row)
+        return out
+
+    def _head(self):
+        return ("original_column_name | column_name | column_description | data_format"
+                + (" | value_description | example_values" if self.ext else ""))
+
+    def table(self, name):
+        if not self.ext:
+            return table6_table(self.ctx.schema, self.ctx.desc, name)
+        t = self.ctx.schema.tables[name]
+        fks = [f"{name}.{c} -> {fk.ref_table}.{r}" for fk in t.fks for c, r in zip(fk.cols, fk.ref_cols)]
+        rows = self._rows([(c.name, name, c.name, c.type) for c in t.columns])
+        return "\n".join([f"# table: {name}", self._head()] + [" | ".join(r) for r in rows]
+                         + (["foreign keys: " + "; ".join(fks)] if fks else []))
+
+    def view(self, v):
+        if not self.ext:
+            return table6_view(v, self.ctx.desc)
+        rows = self._rows([(c.name, c.table, c.col, c.type) for c in v.cols])
+        return "\n".join([f"# view: {v.name}", self._head()] + [" | ".join(r) for r in rows])
+
+
+def run_vsql(item, ctx, ask, rec, args, views=None, fair=False):
     """V-SQL dung theo paper: D' = cac view + bang khong nam trong view nao (bang da gop vao view khong hien rieng);
     schema trinh bay theo Bang 6; prompt Hinh 4 va Hinh 5 nguyen van."""
-    views = ctx.oracle
-    tabs = V.leftover_tables(ctx.schema, views)
-    parts = [table6_view(v, ctx.desc) for v in views] + [table6_table(ctx.schema, ctx.desc, t) for t in tabs]
+    views = ctx.oracle if views is None else views
+    # fair: cac bang khong bi view nao thay the van hien (paper khong cong bo D' cua tung CSDL); mac dinh: D' = view + bang
+    # khong nam trong view nao (bang da gop vao view khong hien rieng)
+    tabs = A.visible_tables(ctx.schema, views) if fair else V.leftover_tables(ctx.schema, views)
+    r6 = Render6(ctx, extended=fair)
+    parts = [r6.view(v) for v in views] + [r6.table(t) for t in tabs]
     rec["n_objects"] = len(views) + len(tabs)
     rec["schema_tables"] = sorted(set(tabs).union(*[v.source_tables() for v in views]))
     p1 = P_VSQL_1.format(relevant_db_schema="\n\n".join(parts), query=vsql_query(item, args))
     dummy = rec["dummy_sql"] = clean(ask(p1, "vsql_s1"))
-    return restore(ctx, item, ask, rec, dummy, views, tabs, "vsql_s2", args)
+    return restore(ctx, item, ask, rec, dummy, views, tabs, "vsql_s2", args, r6)
 
 
-def restore(ctx, item, ask, rec, dummy, views, tabs, stage, args):
+def restore(ctx, item, ask, rec, dummy, views, tabs, stage, args, r6=None):
     """Giai doan 2 cua paper (Hinh 5): LLM khoi phuc dummy SQL tren view ve SQL tren bang goc."""
     used = [v for v in views if references(dummy, v.name)]
     rec["views_used"] = [v.name for v in used]
@@ -387,7 +449,7 @@ def restore(ctx, item, ask, rec, dummy, views, tabs, stage, args):
     tset = set().union(*[v.source_tables() for v in used]) | {t for t in tabs if references(dummy, t)}
     p2 = P_VSQL_2.format(db_type="SQLite", view_schemas="\n\n".join(v.ddl() for v in used), query=vsql_query(item, args),
                          dummy_sql=dummy,
-                         table_schemas="\n\n".join(table6_table(ctx.schema, ctx.desc, t) for t in ctx.schema.tables if t in tset))
+                         table_schemas="\n\n".join((r6 or Render6(ctx)).table(t) for t in ctx.schema.tables if t in tset))
     return clean(ask(p2, stage))
 
 
@@ -480,7 +542,8 @@ def _values_text(px, objs, links, k=8):
 
 def _plus_prompt(px, ctx, objs, item, links, args, extra_tables=(), note=""):
     order = [o for o in px.names if o in objs]
-    parts = [px.text[o] for o in order] + [ctx.ddl(t) for t in extra_tables if t not in px.text]
+    parts = [px.text[o] for o in order]
+    parts += [px.text[t] if t in px.text else ctx.ddl(t) for t in extra_tables if t not in order]
     return P_PLUS.format(schema="\n\n".join(parts), values=_values_text(px, order, links) if links else "",
                          question=item["question"], evidence=_ev(item, args.evidence), note=note)
 
@@ -542,6 +605,19 @@ def run_plus(item, ctx, ask, rec, args, llm, variant=""):
     links = link_values(ctx.vindex, item["question"], item.get("evidence")) if use_vl else []
     colhits = link_columns(ctx.schema, item["question"], item.get("evidence")) if use_vl else set()
     rec["value_links"] = [(v, t, c) for v, t, c, _ in links[:8]]
+    fig4 = variant == "fig4"
+    r6 = Render6(ctx, extended=True)        # fig4: cung cach trinh bay schema voi vsql_fair
+
+    def make_prompt(o, extra=(), note=""):
+        """fig4: template Hinh 4 + schema Bang 6 y nhu V-SQL; chi khac tap view/bang dua vao (huong 1 + huong 2).
+        Gia tri khop chi dung de xep hang view, khong ghi vao prompt; schema lai chi them bang goc, khong them ghi chu."""
+        if fig4:
+            order = [x for x in px.names if x in o]
+            parts = [r6.view(px.view[x]) if x in px.view else r6.table(x) for x in order]
+            parts += [r6.table(t) for t in extra if t not in order]
+            return P_VSQL_1.format(relevant_db_schema="\n\n".join(parts), query=vsql_query(item, args))
+        return _plus_prompt(px, ctx, o, item, links, args, extra_tables=extra, note=note)
+
     small = len(px.names) <= args.all_max_objects or px.est_tokens <= args.all_max_tokens
     rec["all_in_prompt"] = small or variant == "all"
     if rec["all_in_prompt"]:
@@ -555,7 +631,7 @@ def run_plus(item, ctx, ask, rec, args, llm, variant=""):
             objs = list(dict.fromkeys(order[:args.topk] + strong))
         else:
             # bau chon: N dummy SQL tren tap ung vien (1 tham lam + N-1 mau o nhiet do > 0) -> tap view xuat hien nhieu nhat
-            p = _plus_prompt(px, ctx, cand, item, links, args)
+            p = make_prompt(cand)
             reqs = [(p, {})] + [(p, dict(temperature=args.sample_temp, seed=i)) for i in range(1, args.n_samples)]
             sets = [_used(clean(t), cand) for t in ask.many(reqs, "plus_vote")]
             sets = [x for x in sets if x]
@@ -571,7 +647,7 @@ def run_plus(item, ctx, ask, rec, args, llm, variant=""):
     rec["objects"] = objs
     shown_tables = [o for o in objs if o in ctx.schema.tables]
     extra, note = [], ""
-    prompt = _plus_prompt(px, ctx, objs, item, links, args)
+    prompt = make_prompt(objs)
     dummy = clean(ask(prompt, "plus_final"))
     rec["fallback"] = []
     for k in range(args.max_fallback if variant not in ("nofb", "all") else 0):
@@ -583,7 +659,7 @@ def run_plus(item, ctx, ask, rec, args, llm, variant=""):
         # schema lai: cot/bang LLM can khong co trong view duoc cung cap -> dua bang goc tuong ung vao prompt
         extra += add
         where = _where_is(px, ctx, objs, extra, name) if name else []
-        if not add and not where:
+        if not add and (fig4 or not where):
             break
         note += f"\n# note\nYour previous query failed: `{name}` does not exist where you used it."
         if where:
@@ -592,14 +668,14 @@ def run_plus(item, ctx, ask, rec, args, llm, variant=""):
             note += f" The original table(s) {', '.join(add)} are added to the schema; join them on their key columns if needed."
         note += "\n"
         rec["fallback"].append(dict(error=err, added=add, where=where))
-        prompt = _plus_prompt(px, ctx, objs, item, links, args, extra_tables=extra, note=note)
+        prompt = make_prompt(objs, extra, note)
         dummy = clean(ask(prompt, f"plus_fb{k}"))
     rec["dummy_sql"] = dummy
     if variant == "det":
         final, rec["views_used"] = V.unfold(dummy, px.views)       # bien the: giai ma tat dinh (khong thuoc de xuat)
     else:
         # giai doan 2 giu nguyen nhu paper (Hinh 5): V-SQL+ chi doi cach sinh view va cach chon view
-        final = restore(ctx, item, ask, rec, dummy, px.views, list(ctx.schema.tables), "plus_s2", args)
+        final = restore(ctx, item, ask, rec, dummy, px.views, list(ctx.schema.tables), "plus_s2", args, r6 if fig4 else None)
     covered = set(extra) | set(shown_tables)
     for o in objs:
         if o in px.view:
@@ -621,6 +697,10 @@ def run_item(method, item, ctx, llm, args):
         final = run_tasql(item, ctx, ask, rec, args)
     elif method == "vsql":
         final = run_vsql(item, ctx, ask, rec, args)
+    elif method == "vsql_paper":
+        final = run_vsql(item, ctx, ask, rec, args, views=ctx.oracle_paper)
+    elif method == "vsql_fair":
+        final = run_vsql(item, ctx, ask, rec, args, views=ctx.oracle_paper, fair=True)
     elif method.startswith("vsqlplus"):
         final = run_plus(item, ctx, ask, rec, args, llm, method[len("vsqlplus_"):] if "_" in method else "")
     else:
