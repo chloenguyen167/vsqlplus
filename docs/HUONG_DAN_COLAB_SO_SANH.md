@@ -62,26 +62,101 @@ Chạy từng ô bằng nút ▶ bên trái ô, hoặc `Shift + Enter`. **Chạy
 
 ### Bước 1. Cấu hình
 
-Ô này là một biểu mẫu. Các tham số:
+Ô này là một biểu mẫu: tick ô, chọn trong danh sách hoặc gõ giá trị, rồi chạy ô. Dưới đây giải thích từng lựa chọn theo đúng thứ
+tự trong ô.
+
+#### a) Danh sách model
+
+| Ô tick | Model Ollama | Ghi chú |
+|---|---|---|
+| `qwen3_5_0_8b` ✔ | `qwen3.5:0.8b` | Rất nhỏ, chạy nhanh (~1–2 giờ cho 500 câu). Kết quả gần như bằng 0 với mọi phương pháp; chỉ dùng để thấy giới hạn của model nhỏ |
+| `qwen3_5_2b` | `qwen3.5:2b` | Chưa chạy lần nào; tên model chưa kiểm tra trên Ollama |
+| `qwen3_5_4b` ✔ | `qwen3.5:4b` | Đã có kết quả đủ 500 câu (xem `NHAN_XET_KET_QUA_QWEN35.md`) |
+| `qwen3_5_9b` ✔ | `qwen3.5:9b` | Model lớn nhất trong nhóm qwen3.5 chạy được trên T4; chậm nhất (xem bảng thời gian ở Bước 9) |
+| `qwen3_4b`, `qwen3_8b`, `qwen3_14b` | `qwen3:4b`, `qwen3:8b`, `qwen3:14b` | Dòng qwen3 cũ hơn; `qwen3:14b` vẫn vừa T4 |
+
+(✔ = mặc định được tick.) Tick bao nhiêu model thì chạy lần lượt bấy nhiêu model trong cùng phiên, theo thứ tự trong bảng. Mỗi model ghi
+kết quả vào thư mục riêng (`cmp_<tên model>…`), nên có thể chạy model nào trước cũng được.
+
+`MODEL_KHAC`: thêm model Ollama ngoài danh sách, tên cách nhau bằng dấu phẩy. Một số model có số liệu công bố ngang GPT-3.5 / GPT-4 trên
+BIRD và chạy được trên T4:
+
+| Gõ vào `MODEL_KHAC` | Vì sao đáng thử | Lưu ý |
+|---|---|---|
+| `qwen2.5-coder:14b` | Zero-shot trên BIRD mini-dev khoảng 49,6% (bài BAPPA), cao hơn GPT-4-turbo (45,8%) | Nên thử trước với `SAMPLE = 50` |
+| `qwen2.5-coder:7b` | Khoảng giữa GPT-3.5 và GPT-4 trên BIRD dev | |
+| `a-kore/Arctic-Text2SQL-R1-7B` | 68,9% trên BIRD dev | Được huấn luyện riêng cho BIRD theo định dạng suy luận riêng; có thể không làm theo prompt nhiều bước của TA-SQL / V-SQL, và trả lời dễ vượt 800 token |
+
+Tên sai thì Bước 6 báo lỗi ở `ollama pull`. Model lớn hơn khoảng 14B (vd `qwen2.5-coder:32b`) không vừa T4.
+
+#### b) Số câu và phiên bản dữ liệu
 
 | Tham số | Ý nghĩa | Gợi ý |
 |---|---|---|
-| Danh sách model (`qwen3_5_0_8b`, `qwen3_5_2b`, `qwen3_5_4b`, `qwen3_5_9b`, `qwen3_4b`, `qwen3_8b`, `qwen3_14b`) | Tick được nhiều model; các model chạy lần lượt theo thứ tự trong danh sách | Mặc định đã tick `qwen3.5:0.8b`, `qwen3.5:4b`, `qwen3.5:9b`. Nếu chạy 500 câu mà phiên bị ngắt thì chạy lại, hoặc tick ít model hơn mỗi phiên |
-| `MODEL_KHAC` | Tên model Ollama khác, cách nhau bằng dấu phẩy | Để trống nếu không cần. Tên sai thì Bước 6 báo lỗi ở `ollama pull` |
-| `DATASET` | Phiên bản câu hỏi BIRD mini-dev: `2025-07-04` (Hugging Face, 500 câu khác nhau) hoặc `2024-06` (zip OSS gốc, có 2 câu lặp `question_id` 137/138). Bảng so sánh hai bản nằm ngay trên ô Bước 1 và ở mục 1.1 của `TAI_HIEN_DUNG_VA_VSQLPLUS.md` | Giữ `2025-07-04`. Mỗi bản ghi kết quả vào thư mục riêng |
-| `SAMPLE` | `0` = đủ 500 câu như paper. Số khác = lấy mẫu phân tầng theo CSDL × độ khó | `0` khi chạy thật; `50` nếu chỉ muốn thử nhanh |
-| `vsql`, `vsql_paper`, `vsql_fair`, `vsqlplus`, `vsqlplus_fig4` | Chọn phương pháp chạy (TA-SQL luôn chạy). `vsql` = V-SQL tái hiện bản hiện tại; `vsql_paper` = V-SQL với view sát Hình 3 (bỏ cột id khóa ngoại đã thay bằng giá trị, alias = tên bảng); `vsql_fair` = như `vsql_paper` nhưng chỉnh phần paper không nói cho ngang TA-SQL (hiện bảng không bị view thay thế, schema có giá trị mẫu); `vsqlplus` = V-SQL+ (2 hướng + prompt giai đoạn 1 mới); `vsqlplus_fig4` = V-SQL+ chỉ 2 hướng, template và cách trình bày schema y như `vsql_fair` | Mặc định chạy cả 5. Phương pháp đã chạy xong trong thư mục kết quả thì không chạy lại |
-| `ABLATION` | Chạy thêm 5 biến thể đối chiếu của V-SQL+ (chỉ hướng 1, bỏ bầu chọn, bỏ liên kết giá trị, bỏ schema lai, giải mã tất định) | Bật nếu cần bảng đóng góp của từng thành phần; tốn thêm khoảng 40% thời gian |
-| `EMBED_MODEL` | Mô hình embedding cho truy hồi lai của V-SQL+ | Giữ `nomic-embed-text`. Để trống thì V-SQL+ chỉ dùng BM25 |
-| `WORKERS` | Số luồng gọi Ollama song song | Giữ `1` (dùng lại KV cache tốt nhất trên một GPU) |
-| `LUU_DRIVE` | Lưu kết quả vào Google Drive | Luôn bật |
+| `SAMPLE` | `0` = đủ 500 câu như paper. Số khác (vd `50`) = lấy mẫu phân tầng: giữ tỉ lệ câu theo từng CSDL × độ khó, cố định theo seed nên lần nào cũng ra cùng tập câu | `0` khi chạy thật; `50` để thử nhanh một model mới. Kết quả mẫu ghi vào thư mục có thêm `_mau<N>`, không lẫn với kết quả đủ 500 câu. Số câu thực tế có thể lệch vài câu do làm tròn (vd 100 → 98) |
+| `DATASET` | Phiên bản câu hỏi BIRD mini-dev. `2025-07-04`: bản sửa trên Hugging Face, 500 câu khác nhau. `2024-06`: zip OSS gốc, có 2 câu lặp (`question_id` 137, 138), thiếu câu 119, 120. CSDL giống nhau ở cả hai bản. Bảng so sánh nằm ngay trên ô Bước 1 | Giữ `2025-07-04`. Bản 2025 ghi vào thư mục có thêm `_d2025`, bản 2024 thì không |
 
-Phương pháp: `tasql` (TA-SQL, baseline của paper, luôn chạy) và các phương pháp được tick (`vsql`, `vsql_paper`, `vsqlplus`, `vsqlplus_fig4`).
+#### c) Phương pháp chạy
 
-**Kết quả mong đợi:** `Model: ['qwen3.5:0.8b'] | cấu hình: main | số câu: 500`.
+TA-SQL **luôn chạy** vì là baseline mà paper V-SQL so sánh. Các ô còn lại:
 
-> Lưu ý: kết quả chạy đủ 500 câu và kết quả chạy mẫu (`SAMPLE` > 0) nằm ở **hai thư mục khác nhau** (tên thư mục mẫu có thêm
-> `_mau<N>`), nên chạy thử không làm bẩn kết quả thật.
+| Ô tick | Là gì | Lượt gọi LLM/câu (ước tính) |
+|---|---|---|
+| (luôn chạy) `tasql` | TA-SQL theo mã chính thức: dummy SQL → trích bảng/cột → biểu diễn SR kiểu pandas → SQL. Prompt chép nguyên văn | 3 |
+| `vsql` ✔ | **V-SQL tái hiện, bản đầu tiên**: view theo các phép JOIN của SQL đáp án; view giữ cả cột id khóa ngoại, alias theo vai trò (`superhero AS hero`); chỉ hiện view + bảng không nằm trong view nào; schema dạng Bảng 6 thuần; prompt Hình 4 + Hình 5 nguyên văn | ~2 |
+| `vsql_paper` ✔ | **V-SQL với view sát Hình 3**: như `vsql` nhưng view bỏ cột id khóa ngoại đã được thay bằng giá trị (`gender_id` → `gender`), alias là tên bảng (chỉ bảng nối nhiều lần như `colour eye_colour` mới có alias), nối theo thứ tự cột | ~2 |
+| `vsql_fair` ✔ | **V-SQL giữ phần paper quy định, chỉnh phần paper không nói cho ngang TA-SQL**: view như `vsql_paper`, prompt Hình 4 + 5 nguyên văn; thêm (1) các bảng không bị view nào thay thế vẫn hiện trong schema, (2) schema có mô tả giá trị và giá trị mẫu như TA-SQL | ~2 |
+| `vsqlplus` ✔ | **V-SQL+ bản đầy đủ**: 2 hướng cải tiến (sinh view tự động từ khóa ngoại + chọn view bằng truy hồi lai, liên kết giá trị, bầu chọn nhiều mẫu, schema lai) **cộng** prompt giai đoạn 1 mới (schema có nguồn gốc cột, mục giá trị khớp trong DB, ghi chú khi quay về bảng gốc). Giai đoạn 2 theo Hình 5 | ~4–4,5 |
+| `vsqlplus_fig4` ✔ | **V-SQL+ chỉ 2 hướng**: sinh view và chọn view như `vsqlplus`, nhưng template và cách trình bày schema **y như `vsql_fair`** (Hình 4 + 5). Giá trị khớp chỉ dùng để xếp hạng view; schema lai chỉ thêm bảng, không thêm ghi chú | ~4 |
+
+So sánh nào trả lời câu hỏi nào:
+
+| Câu hỏi | So sánh |
+|---|---|
+| V-SQL tái hiện đúng paper có ngang TA-SQL không? | `vsql_paper`, `vsql_fair` so với TA-SQL |
+| Hai hướng cải tiến có tác dụng riêng không? | `vsqlplus_fig4` − `vsql_fair` (cùng template, cùng cách trình bày schema) |
+| Prompt mới có thêm tác dụng không? | `vsqlplus` − `vsqlplus_fig4` |
+| Tổng cải tiến so với bản tái hiện đầu tiên? | `vsqlplus` − `vsql` |
+
+Tick cả 5 thì mỗi model tốn khoảng **9.000** lượt gọi LLM, so với khoảng 4.500 khi chỉ chạy `tasql`, `vsql`, `vsqlplus`. Phương pháp
+đã chạy xong trong thư mục kết quả thì không chạy lại. Ví dụ model đã có kết quả `tasql` / `vsql` / `vsqlplus` thì lần sau chỉ phải
+chạy thêm các phương pháp mới tick.
+
+#### d) Biến thể đối chiếu (`ABLATION`)
+
+Bật thì chạy thêm 5 biến thể của V-SQL+ (bản `vsqlplus`), mỗi biến thể bỏ hoặc thay một thành phần:
+
+| Biến thể | Bỏ / thay gì | Cho biết điều gì |
+|---|---|---|
+| `vsqlplus_all` | Không chọn view: đưa hết view vào prompt, không liên kết giá trị, không schema lai (chỉ còn hướng 1) | Đóng góp của hướng 1 (so với `vsql`) và của hướng 2 (`vsqlplus` − `vsqlplus_all`) |
+| `vsqlplus_novote` | Bỏ bầu chọn nhiều mẫu, chỉ lấy top-k của truy hồi | Tác dụng của bầu chọn |
+| `vsqlplus_novl` | Bỏ liên kết giá trị với DB | Tác dụng của liên kết giá trị |
+| `vsqlplus_nofb` | Bỏ schema lai (không quay về bảng gốc khi LLM dùng cột không có trong view) | Tác dụng của schema lai |
+| `vsqlplus_det` | Thay giai đoạn 2 của paper (LLM viết lại SQL) bằng mở rộng tất định view → bảng gốc. **Không thuộc đề xuất**, chỉ để đo | Giai đoạn 2 làm mất bao nhiêu câu. Dùng lại SQL nháp đã có nên gần như không tốn thêm lượt gọi |
+
+Tốn thêm khoảng 40% thời gian (chủ yếu do `novote`, `novl`, `nofb`).
+
+#### e) Embedding, số luồng, lưu Drive
+
+| Tham số | Ý nghĩa | Gợi ý |
+|---|---|---|
+| `EMBED_MODEL` | Mô hình embedding (qua Ollama) cho phần truy hồi lai của V-SQL+ (`vsqlplus`, `vsqlplus_fig4`, các biến thể). Chỉ ảnh hưởng 5 CSDL lớn, nơi V-SQL+ phải chọn view. Để trống = chỉ dùng BM25 | Giữ `nomic-embed-text`. Đổi sang model khác thì thứ hạng view đổi, nên prompt V-SQL+ ở 5 CSDL lớn phải gọi LLM lại. Lưu ý: mã hiện chưa thêm tiền tố `search_query:` / `search_document:` mà `nomic-embed-text` khuyến nghị |
+| `WORKERS` | Số luồng gọi Ollama song song. Bước 6 đặt `OLLAMA_NUM_PARALLEL` theo giá trị này | Giữ `1`. Lớn hơn có thể nhanh hơn nhưng tốn VRAM hơn, và thứ tự prompt bị chia nên tận dụng cache tiền tố kém hơn. Nếu đổi thì phải chạy lại Bước 6 |
+| `LUU_DRIVE` | Lưu và tự sao lưu kết quả lên Google Drive mỗi 5 phút | Luôn bật; tắt thì Colab ngắt là mất hết |
+
+#### f) Tham số nào được đổi giữa các lần chạy tiếp
+
+| Đổi thoải mái | Không được đổi (nếu muốn chạy tiếp cùng thư mục kết quả) |
+|---|---|
+| Tick thêm hoặc bỏ model, phương pháp, `ABLATION` (chỉ chạy thêm phần mới) | `DATASET`, `SAMPLE` (đổi là sang thư mục khác) |
+| `LUU_DRIVE` | `EMBED_MODEL` (đổi thì prompt V-SQL+ ở CSDL lớn khác đi, cache không dùng lại được) |
+| `WORKERS` (phải chạy lại Bước 6) | Phiên bản mã trên GitHub, nếu bản mới làm đổi prompt |
+
+**Kết quả mong đợi** khi chạy ô (với mặc định):
+```
+Model: ['qwen3.5:0.8b', 'qwen3.5:4b', 'qwen3.5:9b'] | cấu hình: tasql,vsql,vsql_paper,vsql_fair,vsqlplus,vsqlplus_fig4 | số câu: 500 | dữ liệu: 2025-07-04
+LƯU Ý: nhiều model × 500 câu có thể vượt giới hạn ~12 giờ/phiên của Colab. ...
+```
 
 ### Bước 2. Kiểm tra GPU, kết nối Google Drive
 
@@ -159,14 +234,13 @@ Thư mục kết quả trên Drive:
 | `qwen3:8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen3_8b_d2025/` |
 | `qwen3.5:9b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_9b_d2025/` |
 
-### Bước 8. Chạy thử 3 câu × 3 phương pháp (~2–5 phút)
+### Bước 8. Chạy thử 3 câu × các phương pháp đã chọn (~2–5 phút)
 
-Kiểm tra toàn bộ đường ống với model thật trước khi chạy lâu. **Kết quả mong đợi:** một bảng EX có 3 dòng `tasql`, `vsql`,
-`vsqlplus`, mỗi dòng `n` = 3. EX của 3 câu không có ý nghĩa thống kê; chỉ cần **không có** `Error`/`Traceback`.
+Kiểm tra toàn bộ đường ống với model thật trước khi chạy lâu. **Kết quả mong đợi:** một bảng EX có một dòng cho mỗi phương pháp đã chạy (mặc định 6 dòng: `tasql`, `vsql`, `vsql_paper`, `vsql_fair`, `vsqlplus`, `vsqlplus_fig4`), mỗi dòng `n` = 3. EX của 3 câu không có ý nghĩa thống kê; chỉ cần **không có** `Error`/`Traceback`.
 
 ### Bước 9. Chạy chính
 
-Mỗi model chạy 3 phương pháp trên 500 câu (thêm 5 biến thể của V-SQL+ nếu bật `ABLATION`). Chương trình gom các prompt còn thiếu theo từng
+Mỗi model chạy TA-SQL và các phương pháp đã tick trên 500 câu (thêm 5 biến thể của V-SQL+ nếu bật `ABLATION`). Chương trình gom các prompt còn thiếu theo từng
 vòng rồi gọi LLM:
 
 | Vòng | Nội dung |
@@ -183,14 +257,16 @@ Dòng tiến độ có dạng:
 "con lai" là thời gian còn lại **của vòng hiện tại**. Các vòng sau ngắn hơn vòng 1. Khi hết các vòng, chương trình chấm điểm
 (nhanh, vì mọi câu trả lời đã nằm trong cache) và in bảng tổng hợp.
 
-**Ước tính thời gian trên T4** (khoảng 4.500 lượt gọi LLM mỗi model):
+**Ước tính thời gian trên T4** (chưa đo đầy đủ; ~4.500 lượt gọi LLM mỗi model cho 3 phương pháp, ~9.000 cho cả 6):
 
-| Model | 3 phương pháp | Có `ABLATION` |
-|---|---|---|
-| `qwen3.5:0.8b` | ~1–2 giờ | ~1,5–3 giờ |
-| `qwen3.5:4b` | ~3–6 giờ | ~4–8 giờ |
-| `qwen3:8b` | ~6–10 giờ | ~8–14 giờ |
-| `qwen3.5:9b` | ~6–10 giờ | ~8–14 giờ |
+| Model | `tasql` + `vsql` + `vsqlplus` | Cả 6 phương pháp (mặc định) | Thêm `ABLATION` |
+|---|---|---|---|
+| `qwen3.5:0.8b` | ~1–2 giờ | ~2–4 giờ | +40% |
+| `qwen3.5:4b` | ~3–6 giờ | ~6–12 giờ | +40% |
+| `qwen3:8b` | ~6–10 giờ | ~12–20 giờ | +40% |
+| `qwen3.5:9b` | ~6–10 giờ | ~12–20 giờ | +40% |
+
+Nếu model đã có kết quả của `tasql` / `vsql` / `vsqlplus` từ trước thì chỉ tốn thời gian cho các phương pháp mới tick.
 
 Đây là ước tính, chưa đo thực tế. Thời gian thật phụ thuộc tốc độ GPU được cấp và độ dài câu trả lời của model. Hãy dựa vào
 dòng `con lai ~N phut`.

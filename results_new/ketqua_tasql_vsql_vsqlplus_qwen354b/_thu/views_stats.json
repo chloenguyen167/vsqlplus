@@ -1,0 +1,11 @@
+{
+ "debit_card_specializing": {
+  "tables": 5,
+  "fks": 4,
+  "inferred_fks": 3,
+  "oracle": 2,
+  "oracle_ok": 2,
+  "auto": 2,
+  "auto_ok": 2
+ }
+}
