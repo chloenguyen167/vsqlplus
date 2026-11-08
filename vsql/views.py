@@ -1,10 +1,9 @@
-"""Sinh view (kieu paper / tu dong tu do thi khoa ngoai / thu cong) va viet lai tat dinh view -> bang goc."""
+"""Cau truc view dung chung (View/VCol/Join), kiem tra so dong view, giai ma tat dinh view -> bang goc (CTE).
+Cach dung view: xem vsql/autoview.py."""
 import re
-from collections import Counter
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from .db import connect, qi, references, run_sql, strip_strings, tables_in_sql, _show
+from .db import qi, references, run_sql, strip_strings
 
 
 @dataclass
@@ -28,24 +27,18 @@ class Join:
 class View:
     name: str
     base: str
-    origin: str                      # oracle | oracle_fan | auto | manual
+    origin: str                      # oracle (theo JOIN dap an) | auto (tu dong tu khoa ngoai)
     cols: list = field(default_factory=list)
     joins: list = field(default_factory=list)
     row_preserving: bool = True      # so dong view == so dong bang goc
     verified: str = "unverified"
-    raw_sql: str = None
-    raw_sources: set = None
     paper: bool = False              # view kieu Hinh 3 cua paper: khong viet "AS alias" khi alias trung ten bang
 
     def source_tables(self):
-        if self.raw_sql:
-            return set(self.raw_sources)
         return {self.base} | {j.table for j in self.joins}
 
     def select_sql(self, needed=None):
         """needed: tap ten cot (lower) cua bang noi can giu; None = giu tat ca."""
-        if self.raw_sql:
-            return self.raw_sql
         cols = [c for c in self.cols if needed is None or c.alias == self.base or c.name.lower() in needed]
         keep = {c.alias for c in cols}
         parent = {j.alias: j.parent for j in self.joins}
@@ -69,68 +62,6 @@ class View:
     def ddl(self):
         return f"CREATE VIEW {qi(self.name)} AS {self.select_sql()};"
 
-    def describe(self, schema, n_samples=3):
-        """Mo ta view cho prompt giai doan 1: nhu mot bang rong, kem nguon goc cot."""
-        note = f"one row per row of {self.base}" if self.row_preserving else \
-            "WARNING: joins one-to-many relations, rows of the base table may repeat"
-        lines = []
-        for c in self.cols:
-            s = f"  {qi(c.name)} {c.type}".rstrip() + ","
-            bits = []
-            if c.alias is not None and c.alias != self.base:
-                bits.append(f"from {c.table}.{c.col}")
-            ex = schema.samples.get((c.table, c.col), [])[:n_samples] if c.table else []
-            if ex:
-                bits.append("e.g. " + ", ".join(_show(v) for v in ex))
-            if bits:
-                s += "  -- " + "; ".join(bits)
-            lines.append(s)
-        return f"VIEW {qi(self.name)} (  -- {note}\n" + "\n".join(lines) + "\n);"
-
-
-# --------------------------------------------------------------------------- xay view co cau truc
-class _Builder:
-    def __init__(self, schema, base, name, origin, naming="prefix"):
-        self.naming = naming
-        self.s = schema
-        self.v = View(name, base, origin)
-        self.names = set()
-        self.aliases = {base.lower()}
-        for c in schema.tables[base].columns:
-            self._add_col(c.name, base, base, c)
-
-    def _add_col(self, name, alias, table, c):
-        n, i = name, 2
-        while n.lower() in self.names:
-            n, i = f"{name}_{i}", i + 1
-        self.names.add(n.lower())
-        self.v.cols.append(VCol(n, alias, table, c.name, c.type))
-
-    def join(self, parent_alias, table, on, prefix, skip=()):
-        a, i = prefix, 2
-        while a.lower() in self.aliases:
-            a, i = f"{prefix}_{i}", i + 1
-        self.aliases.add(a.lower())
-        self.v.joins.append(Join(a, table, parent_alias, list(on)))
-        for c in self.s.tables[table].columns:
-            if c.name in skip:
-                continue
-            # plain (CT6): giu ten cot goc neu chua trung, chi them tien to khi trung ten
-            nm = c.name if self.naming == "plain" and c.name.lower() not in self.names else _colname(prefix, c.name)
-            self._add_col(nm, a, table, c)
-        return a
-
-
-def _fk_prefix(fk, parent_prefix):
-    if len(fk.cols) == 1:
-        p = re.sub(r"(_id|_ID|Id|ID|_code|_key)$", "", fk.cols[0])
-        if not p or p == fk.cols[0] and fk.cols[0].lower() == fk.ref_cols[0].lower():
-            p = fk.ref_table
-    else:
-        p = fk.ref_table
-    return f"{parent_prefix}_{p}" if parent_prefix else p
-
-
 def _colname(prefix, col):
     pl, cl = prefix.lower(), col.lower()
     if cl.startswith(pl):
@@ -138,37 +69,6 @@ def _colname(prefix, col):
     if pl.endswith(cl):
         return prefix
     return f"{prefix}_{col}"
-
-
-def build_n1_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", naming="prefix"):
-    """View = bang goc LEFT JOIN cac bang cha theo chieu N-1 (giu nguyen so dong)."""
-    b = _Builder(schema, base, "v_" + base, origin, naming)
-
-    def expand(alias, table, prefix, d, path):
-        for fk in schema.tables[table].fks:
-            p = fk.ref_table
-            if p in path or (allowed is not None and p not in allowed) or not schema.safe_fk(fk):
-                continue
-            if len(b.v.cols) + len(schema.tables[p].columns) > max_cols:
-                continue
-            pfx = _fk_prefix(fk, prefix)
-            a = b.join(alias, p, zip(fk.cols, fk.ref_cols), pfx, skip=fk.ref_cols)
-            if d > 1:
-                expand(a, p, pfx, d - 1, path | {p})
-
-    expand(base, base, "", depth, {base})
-    return b.v if b.v.joins else None
-
-
-def auto_views(schema, depth=2, max_cols=60, naming="prefix"):
-    """Cai tien 2: sinh view tu dong tu do thi khoa ngoai, khong nhin dap an.
-    naming="plain" (CT6): cot cua bang cha giu ten goc, chi them tien to khi trung ten."""
-    out = []
-    for t in schema.tables:
-        v = build_n1_view(schema, t, depth, None, max_cols, "auto", naming)
-        if v:
-            out.append(v)
-    return out
 
 
 def _reach(schema, root, S):
@@ -182,85 +82,9 @@ def _reach(schema, root, S):
     return seen
 
 
-def _fan_view(schema, S):
-    """View cho mau JOIN co quan he 1-N (paper khong phan tich ngu nghia nay): co the nhan ban dong."""
-    S = sorted(S)
-    start = max(S, key=lambda t: sum(1 for fk in schema.tables[t].fks if fk.ref_table in S))
-    b = _Builder(schema, start, "v_" + "_".join(S), "oracle_fan")
-    inc = {start: start}
-    progress = True
-    while progress and len(inc) < len(S):
-        progress = False
-        for x in list(inc):
-            for fk in schema.tables[x].fks:               # x la con, noi sang cha
-                n = fk.ref_table
-                if n in S and n not in inc:
-                    inc[n] = b.join(inc[x], n, zip(fk.cols, fk.ref_cols), n, skip=fk.ref_cols)
-                    if not schema.safe_fk(fk):
-                        b.v.row_preserving = False
-                    progress = True
-            for n in S:                                    # n la con cua x: quan he 1-N
-                if n in inc:
-                    continue
-                for fk in schema.tables[n].fks:
-                    if fk.ref_table == x:
-                        inc[n] = b.join(inc[x], n, zip(fk.ref_cols, fk.cols), n, skip=fk.cols)
-                        b.v.row_preserving = False
-                        progress = True
-                        break
-    return b.v if len(inc) == len(S) else None
-
-
-def oracle_views(schema, gold_sqls, max_fan=3):
-    """Tai hien cach lam cua paper: thiet ke view dua tren cac phep JOIN trong SQL dap an
-    cua chinh tap danh gia (RO RI DAP AN - dung de tai hien, khong phai de trien khai)."""
-    allowed, fan = {}, Counter()
-    for sql in gold_sqls:
-        S = tables_in_sql(sql, schema)
-        if len(S) < 2:
-            continue
-        roots = [t for t in sorted(S) if _reach(schema, t, S) == S]
-        if roots:
-            allowed.setdefault(roots[0], set()).update(S)
-        else:
-            fan[frozenset(S)] += 1
-    out = []
-    for root, S in sorted(allowed.items()):
-        v = build_n1_view(schema, root, depth=len(S), allowed=S, max_cols=10 ** 6, origin="oracle")
-        if v:
-            out.append(v)
-    names = {v.name for v in out}
-    for S, _ in fan.most_common(max_fan):
-        v = _fan_view(schema, S)
-        if v and v.name not in names:
-            out.append(v)
-            names.add(v.name)
-    return out
-
-
-_CV = re.compile(r"CREATE\s+VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\"\[]?(\w+)[`\"\]]?\s+AS\s+(.*?)(?=;|\Z)", re.I | re.S)
-
-
-def manual_views(schema, path):
-    """View viet tay: file .sql gom cac lenh CREATE VIEW ten AS SELECT ...;"""
-    out = []
-    for name, body in _CV.findall(Path(path).read_text(encoding="utf-8")):
-        body = body.strip()
-        v = View(name, "", "manual", raw_sql=body, raw_sources=tables_in_sql(body, schema), row_preserving=False)
-        con = connect(schema.path)
-        cur = con.execute(f"SELECT * FROM ({body}) LIMIT 0")
-        v.cols = [VCol(d[0], None, None, d[0]) for d in cur.description]
-        con.close()
-        out.append(v)
-    return out
-
-
 def validate(schema, views, timeout=60):
     """Kiem tra tu dong: view N-1 phai co so dong bang bang goc."""
     for v in views:
-        if v.raw_sql:
-            v.verified = "manual"
-            continue
         a, e1, _ = run_sql(schema.path, f"SELECT COUNT(*) FROM ({v.select_sql()})", timeout)
         b, e2, _ = run_sql(schema.path, f"SELECT COUNT(*) FROM {qi(v.base)}", timeout)
         if e1 or e2:
@@ -278,13 +102,13 @@ def leftover_tables(schema, views):
     return [t for t in schema.tables if t not in used]
 
 
-# --------------------------------------------------------------------------- cai tien 1: viet lai tat dinh
+# --------------------------------------------------------------------------- giai ma tat dinh view -> bang goc
 _STAR = re.compile(r"(?:\bselect\b|,|\.|\bdistinct\b)\s*\*", re.I)
 
 
 def needed_columns(sql, view):
     """Tap (bao thu) cac cot cua view ma SQL co the dung. None = can giu tat ca."""
-    if view.raw_sql or not view.row_preserving:
+    if not view.row_preserving:
         return None            # cat phep noi 1-N se doi so dong -> khong cat
     s = strip_strings(sql)
     if _STAR.search(s):

@@ -30,7 +30,7 @@ Notebook tải mã bằng `git clone https://github.com/chloenguyen167/vsqlplus.
 GitHub trước khi chạy. Trên máy cá nhân, trong thư mục repo:
 
 ```bash
-git add run_compare.py vsql/ tests/ notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb docs/ README.md run_experiment.py
+git add -A
 git commit -m "Them TA-SQL, V-SQL dung theo paper, V-SQL+ va notebook Colab"
 git push origin main
 ```
@@ -169,8 +169,8 @@ Clone repo vào `/content/vsqlplus` (nếu đã có thì `git pull`), sau đó c
 
 **Kết quả mong đợi** (2 dòng):
 ```
-TAT CA KIEM THU (so sanh) DAT. {'base': 8, 'tasql': 8, 'vsql': 7, 'vsqlplus': 8, ...}
-TAT CA KIEM THU DAT. {...}
+TAT CA KIEM THU (so sanh) DAT. {'tasql': 8, 'vsql': 7, 'vsqlplus': 8, ...}
+KIEM THU LOI OLLAMA DAT.
 ```
 Nếu có `AssertionError` hoặc `No such file`, thường là mã trên GitHub chưa được cập nhật (xem mục 1.1).
 

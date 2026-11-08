@@ -1,160 +1,185 @@
-# Tái hiện V-SQL và đánh giá 4 cải tiến (qwen3 qua Ollama)
-
-Gói mã chạy trên máy bạn, chỉ dùng thư viện chuẩn Python ≥ 3.8 (không cần `pip install`).
-
-## Mới: so sánh TA-SQL · V-SQL (đúng theo paper) · V-SQL+ trên đủ 500 câu
+# Tái hiện V-SQL, so sánh với TA-SQL và cải tiến V-SQL+ trên BIRD mini-dev
 
 [![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb)
 
-`run_compare.py` + notebook [`notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`](notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb) (T4;
-`qwen3.5:0.8b`, `qwen3:8b`, `qwen3.5:9b`) chạy 3 phương pháp: `tasql` (TA-SQL, baseline của paper, cài theo mã chính
-thức), `vsql` (prompt Hình 4/5 của paper, view theo JOIN đáp án, tên cột như Hình 3), `vsqlplus` (kết hợp 2 hướng: tự động sinh view +
-chọn view bằng truy hồi lai, bổ trợ bởi truy hồi mức cột, liên kết giá trị, bầu chọn nhiều mẫu, schema lai). Kết quả kiểm tra phần tái hiện cũ (vì sao
-baseline luôn hơn V-SQL, lỗi đếm 498 câu) và thiết kế chi tiết: [`docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`](docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md).
-Hướng dẫn chạy trên Colab từng bước: [`docs/HUONG_DAN_COLAB_SO_SANH.md`](docs/HUONG_DAN_COLAB_SO_SANH.md).
+Mã nguồn tái hiện paper **V-SQL: A View-based Two-stage Text-to-SQL Framework** (2024), so sánh với baseline mà paper dùng là
+**TA-SQL** (Qu et al., ACL Findings 2024), và đề xuất cải tiến **V-SQL+**. Thực nghiệm chạy trên **BIRD mini-dev** (500 câu,
+11 CSDL) với các model Qwen mã nguồn mở qua **Ollama trên Google Colab (GPU T4)**.
 
-```bash
-python tests/test_compare.py     # kiểm thử 4 phương pháp với LLM giả lập
-```
+Chỉ dùng thư viện chuẩn của Python ≥ 3.8; không cần `pip install`.
 
-Các mục dưới đây mô tả mã của đợt trước (CT1–CT8, `run_experiment.py`).
+---
 
-## Chạy trên Google Colab
+## Chạy trên Google Colab (cách chính)
 
-[![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/VSQL_Colab.ipynb)
+1. Mở notebook bằng nút **Open in Colab** ở trên ([`notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`](notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb)).
+2. **Runtime → Change runtime type → T4 GPU**.
+3. Ở **Bước 1**, chọn model, phiên bản dữ liệu và phương pháp, rồi chạy lần lượt các ô từ trên xuống.
 
-Notebook [`notebooks/VSQL_Colab.ipynb`](notebooks/VSQL_Colab.ipynb) tái hiện V-SQL và chạy hai cải tiến CT5 (sửa lỗi theo
-lược đồ) và CT7 (bỏ phiếu theo kết quả thực thi) với model chạy trên GPU của Colab (Ollama) hoặc qua API tương thích OpenAI.
-Hướng dẫn chi tiết: [`docs/HUONG_DAN_COLAB.md`](docs/HUONG_DAN_COLAB.md).
+Notebook tự làm mọi việc: tải BIRD mini-dev, tải mô tả cột của TA-SQL, cài Ollama và model, chạy, chấm điểm, kiểm định thống kê,
+vẽ biểu đồ. Kết quả được **tự sao lưu lên Google Drive** (`MyDrive/vsqlplus_ketqua/`). Nếu Colab ngắt thì chạy lại, phần đã xong
+được bỏ qua; có thể chuyển sang tài khoản Google khác và chạy tiếp.
 
-## 0. Chạy nhanh, không cần Ollama hay BIRD
+Hướng dẫn chi tiết từng bước, giải thích mọi lựa chọn ở Bước 1, kết quả mong đợi và cách xử lý lỗi:
+**[`docs/HUONG_DAN_COLAB_SO_SANH.md`](docs/HUONG_DAN_COLAB_SO_SANH.md)**.
 
-```bash
-python tests/test_all.py     # kiểm thử phần tất định + đường ống với LLM giả lập
-python tests/test_repair.py  # kiểm thử CT5 schema-guard
-python demo.py               # minh họa 4 cải tiến trên CSDL mẫu theo schema superhero
-```
+> Notebook lấy mã bằng `git clone` từ nhánh `main` của repo này. Sửa mã ở máy thì phải push lên GitHub, Colab mới thấy.
 
-`demo.py` dùng cơ sở dữ liệu mẫu ngẫu nhiên (`tests/make_toy.py`) và một LLM giả lập theo kịch bản, nên chỉ kiểm tra
-tính đúng đắn của phần tất định (view tự động, mở rộng CTE, phát hiện view 1-N, truy xuất). Kết quả mẫu nằm ở
-`docs/demo_output.txt`. **Đây không phải kết quả thực nghiệm trên BIRD.**
+---
 
-## Cấu trúc
+## Các phương pháp
 
-```
-vsql/db.py          đọc schema, khóa ngoại, giá trị mẫu; chạy SQL có timeout; phân loại lỗi
-vsql/views.py       sinh view (theo đáp án / tự động / viết tay), kiểm tra số dòng, unfold (CT1)
-vsql/retrieval.py   BM25, embedding, RRF (CT4)
-vsql/pipeline.py    7 cấu hình + prompt
-vsql/llm.py         client Ollama có cache; MockLLM
-vsql/report.py      EX, CI bootstrap, McNemar (+ Holm), phân loại lỗi, chi phí
-vsql/repair.py      CT5 schema-guard: sửa SQL tất định theo thông báo lỗi + schema thật
-run_experiment.py   chạy thực nghiệm trên BIRD mini-dev
-improve.py          áp dụng hậu kỳ: CT5 (--fix), CT8 sửa bằng LLM (--feedback), CT7 bỏ phiếu (--vote)
-analyze.py          EX theo CSDL / số JOIN
-demo.py, tests/     demo và kiểm thử
-```
+| Phương pháp | Mô tả | Lượt gọi LLM/câu |
+|---|---|---|
+| `tasql` | **TA-SQL**, baseline của paper (luôn chạy). Cài theo [mã chính thức](https://github.com/quge2023/TA-SQL): TASL (dummy SQL → trích bảng/cột) + TALOG (biểu diễn ký hiệu SR → SQL). Prompt chép nguyên văn (`vsql/tasql_prompts.py`), mô tả cột lấy từ `column_meaning.json` của TA-SQL | 3 |
+| `vsql` | **V-SQL tái hiện, bản đầu tiên**: view thiết kế theo JOIN của SQL đáp án (mục 6 của paper); prompt Hình 4 (giai đoạn 1) và Hình 5 (giai đoạn 2, LLM khôi phục SQL) nguyên văn; schema dạng Bảng 6 | ~2 |
+| `vsql_paper` | V-SQL với **view sát Hình 3**: bỏ cột id khóa ngoại đã thay bằng giá trị, alias là tên bảng, nối theo thứ tự cột | ~2 |
+| `vsql_fair` | V-SQL **giữ phần paper quy định, chỉnh phần paper không nói** cho ngang TA-SQL: hiện cả các bảng không bị view nào thay thế; schema có mô tả giá trị và giá trị mẫu | ~2 |
+| `vsqlplus` | **V-SQL+ đầy đủ**: 2 hướng cải tiến + prompt giai đoạn 1 mới | ~4–4,5 |
+| `vsqlplus_fig4` | **V-SQL+ chỉ 2 hướng**: template và cách trình bày schema y như `vsql_fair`, chỉ khác ở cách sinh view và cách chọn view | ~4 |
 
-## 1. Chuẩn bị
+**Hai hướng cải tiến của V-SQL+** (paper để ngỏ cả hai):
+1. **Tự động sinh view** từ khóa ngoại: chỉ nối N-1 khi khóa được tham chiếu là duy nhất, kiểm tra lại số dòng, suy thêm khóa
+   ngoại bị thiếu khai báo, đặt tên cột sạch như Hình 3.
+2. **Chọn view đúng bằng truy hồi lai** (BM25 + embedding), bổ trợ bởi: truy hồi mức cột rồi gộp lên view; liên kết giá trị
+   trong câu hỏi với giá trị thật trong DB; bầu chọn tập view từ nhiều dummy SQL; schema lai (quay về bảng gốc khi LLM dùng cột
+   không có trong view); CSDL nhỏ thì đưa hết view vào prompt.
 
-```bash
-ollama pull qwen3:8b            # hoặc qwen3:14b / qwen3:32b tùy VRAM
-# Dữ liệu BIRD mini-dev (500 câu, 11 database): tải minidev.zip rồi giải nén
-#   https://bird-bench.oss-cn-beijing.aliyuncs.com/minidev.zip
-python tests/test_all.py        # kiểm thử phần tất định, không cần Ollama, không cần BIRD
-```
+Giai đoạn 2 (LLM khôi phục SQL theo Hình 5) giữ nguyên như paper ở mọi bản V-SQL / V-SQL+.
 
-## 2. Chạy
+**Biến thể đối chiếu** (bật `ABLATION` trong notebook): `vsqlplus_all` (chỉ hướng 1), `vsqlplus_novote`, `vsqlplus_novl`,
+`vsqlplus_nofb` (bỏ từng thành phần của hướng 2), `vsqlplus_det` (thay giai đoạn 2 bằng giải mã tất định; không thuộc đề xuất,
+chỉ để đo).
+
+| Câu hỏi | So sánh |
+|---|---|
+| V-SQL đúng paper có ngang TA-SQL không? | `vsql_paper`, `vsql_fair` so với `tasql` |
+| Hai hướng cải tiến có tác dụng riêng không? | `vsqlplus_fig4` − `vsql_fair` |
+| Prompt mới có thêm tác dụng không? | `vsqlplus` − `vsqlplus_fig4` |
+
+Chi tiết thiết kế và mọi điểm khác paper: [`docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`](docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md).
+
+---
+
+## Dữ liệu
+
+| Phiên bản (`DATASET`) | Nguồn | Ghi chú |
+|---|---|---|
+| `2025-07-04` (mặc định) | [Hugging Face `birdsql/bird_mini_dev`](https://huggingface.co/datasets/birdsql/bird_mini_dev), commit `f65faf4` | 500 câu khác nhau; độ khó 148 / 250 / 102 như Bảng 2 của paper |
+| `2024-06` | [zip OSS gốc](https://bird-bench.oss-cn-beijing.aliyuncs.com/minidev.zip) | Có 2 câu lặp (`question_id` 137, 138), thiếu câu 119, 120 |
+
+CSDL, `dev_tables.json` và mô tả cột giống nhau ở cả hai bản (lấy từ zip OSS). Mã định danh mỗi câu theo vị trí dòng (`uid`) nên
+luôn chấm đủ 500 dòng. Notebook kiểm tra md5 của file câu hỏi. Mô tả cột TA-SQL được tải từ
+[`outputs/column_meaning.json`](https://github.com/quge2023/TA-SQL/tree/master/outputs) của repo TA-SQL.
+
+---
+
+## Kết quả đã có
+
+| Model | TA-SQL | V-SQL | V-SQL+ | Ghi chú |
+|---|---|---|---|---|
+| `qwen3.5:4b` | **38,0** | 19,2 | 29,4 | 500 câu, dữ liệu 2025; mọi chênh lệch có ý nghĩa thống kê |
+| `qwen3.5:0.8b` | 1,6 | 0,8 | 2,2 | model quá nhỏ, không dùng để so sánh |
+
+(EX, %. Lần chạy này có `tasql`, `vsql`, `vsqlplus`; chưa có `vsql_paper`, `vsql_fair`, `vsqlplus_fig4`.)
+
+Phát hiện chính với 4b: câu SQL nháp viết trên view của V-SQL+ (giai đoạn 1) đúng 200/500 câu, ngang TA-SQL (190). Phần thua đến
+từ giai đoạn 2, khi LLM viết lại SQL nháp về bảng gốc. Phân tích đầy đủ, dễ hiểu:
+[`docs/NHAN_XET_KET_QUA_QWEN35.md`](docs/NHAN_XET_KET_QUA_QWEN35.md). File kết quả gốc nằm trong `results_new/`.
+
+---
+
+## Chạy bằng dòng lệnh (không qua notebook)
+
+Cần Ollama đang chạy và model đã `ollama pull`. Theo hướng dẫn của nhóm, thực nghiệm chạy trên Colab chứ không chạy trên máy cá
+nhân; các lệnh dưới đây chủ yếu để hiểu notebook gọi gì.
 
 ```bash
 D=minidev/MINIDEV
-# (a) Xem trước view được sinh, chưa gọi LLM  ->  results/q8/views/*.sql
-python run_experiment.py --data $D/mini_dev_sqlite.json --db-root $D/dev_databases --out results/q8 --views-only
+COMMON="--data $D/mini_dev_sqlite_2025-07-04.json --db-root $D/dev_databases --tables-json $D/dev_tables.json \
+        --tasql-meaning column_meaning.json"
 
-# (b) Chạy thử 20 câu để ước lượng thời gian
-python run_experiment.py --data $D/mini_dev_sqlite.json --db-root $D/dev_databases --out results/thu --limit 20
-
-# (c) Chạy đầy đủ 7 cấu hình trên 500 câu
-python run_experiment.py --data $D/mini_dev_sqlite.json --db-root $D/dev_databases --model qwen3:8b --out results/q8
-
-# (d) Đo riêng bước truy xuất theo k (không gọi LLM)
-python run_experiment.py --data $D/mini_dev_sqlite.json --db-root $D/dev_databases --out results/q8 --retrieval-sweep
+python run_compare.py $COMMON --model qwen3.5:4b --out results/cmp_qwen35_4b \
+    --methods tasql,vsql,vsql_paper,vsql_fair,vsqlplus,vsqlplus_fig4
+python run_compare.py $COMMON --model qwen3.5:4b --out results/cmp_qwen35_4b --methods vsqlplus_all,vsqlplus_det
+python run_compare.py $COMMON --out results/_views --views-only                   # chỉ sinh + kiểm tra view, không gọi LLM
+python run_compare.py $COMMON --out results/_views --selection-sweep --no-embed   # độ phủ bước chọn view, không gọi LLM
+python run_compare.py --help                                                      # toàn bộ tham số
 ```
 
-Chạy được ngắt giữa chừng rồi chạy lại: câu đã xong được bỏ qua, câu trả lời của LLM được cache trong
-`llm_cache.sqlite`. Kết quả nằm ở `results/q8/summary.md`, `summary.csv`, `predictions_<cấu hình>.jsonl`.
-Tổng cộng khoảng 7 lượt gọi LLM cho mỗi câu hỏi (3.500 lượt cho 500 câu).
+Tham số hay dùng:
 
-Trước khi chấm điểm, chương trình gom mọi prompt còn thiếu, sắp theo thứ tự chữ rồi gọi LLM tuần tự (bước *prefetch*):
-các prompt chung schema đứng liền nhau nên Ollama dùng lại KV cache của phần đầu prompt, nhanh hơn 3–5 lần. Kết quả từng câu
-không đổi. Không nên dùng `--workers 2`: trên một GPU, hai luồng tranh nhau slot cache và chậm hơn.
-Xem tiến độ và thời gian còn lại: `./progress.sh`. Chạy trên tập con: `--sample N` (mẫu phân tầng theo CSDL × độ khó) hoặc
-`--qids file.json`. Phân tích bổ sung (EX theo CSDL, theo số JOIN): `python analyze.py results/q8 --data $D/mini_dev_sqlite.json`.
-
-Tham số đáng chú ý: `--num-ctx` (mặc định 16384; Ollama mặc định cắt prompt ở 4096 nên phải đặt đủ lớn,
-chương trình sẽ cảnh báo nếu chạm ngưỡng), `--think` (bật suy luận của qwen3, khi đó nên tăng `--num-predict`),
-`--infer-fk` (suy thêm khóa ngoại cho database thiếu khai báo), `--topk`, `--retriever bm25|embed|hybrid`,
-`--depth`, `--max-cols`, `--no-evidence`.
-
-## 3. Bảy cấu hình
-
-| Cấu hình | View lấy từ đâu | Bảng gốc trong prompt | Đưa dummy SQL về bảng gốc | Ý nghĩa |
-|---|---|---|---|---|
-| `base` | không dùng view | tất cả | (một giai đoạn) | baseline zero-shot |
-| `vsql` | theo JOIN trong SQL đáp án | bảng không thuộc view nào | LLM tái tạo | **tái hiện paper** |
-| `vsql_det` | như `vsql` | như `vsql` | chèn CTE, tất định | cải tiến 1 |
-| `auto_llm` | tự động từ đồ thị khóa ngoại | bảng không thuộc view nào | LLM tái tạo | cải tiến 2 |
-| `auto_det` | tự động | như trên | tất định | cải tiến 1 + 2 |
-| `hybrid` | tự động | tất cả | tất định | + cải tiến 3 (schema lai) |
-| `hybrid_ret` | tự động | top-k view/bảng | tất định | + cải tiến 4 (truy xuất) |
-
-`vsql` và `vsql_det` dùng **cùng một prompt giai đoạn 1** nên nhận cùng một dummy SQL (qua cache, temperature 0).
-Chênh lệch giữa hai cấu hình này vì thế chỉ do giai đoạn 2. Tương tự cho `auto_llm` và `auto_det`.
-
-### Cách hiện thực từng cải tiến
-1. **Viết lại tất định** (`views.unfold`): định nghĩa view được chèn thành CTE trước dummy SQL. Các `LEFT JOIN`
-   N-1 mà truy vấn không dùng đến bị cắt bỏ (an toàn vì không đổi số dòng). Không gọi LLM.
-2. **View tự động** (`views.auto_views`): với mỗi bảng có khóa ngoại, nối `LEFT JOIN` sang các bảng cha theo
-   chiều N-1 (đã kiểm tra khóa được tham chiếu là duy nhất), sâu `--depth` mức, mỗi khóa ngoại một alias riêng.
-   Bảng cầu nối N-N tự thành view riêng. Sau đó kiểm tra số dòng view bằng số dòng bảng gốc.
-3. **Schema lai**: prompt gồm cả view lẫn bảng gốc, kèm quy tắc khi nào dùng loại nào; LLM được phép nối view với bảng.
-4. **Truy xuất**: BM25 trên tên view/bảng, tên cột và giá trị mẫu; tùy chọn embedding qua Ollama hoặc kết hợp RRF.
-
-### Cải tiến bổ sung (đợt 2, nhắm vào mô hình nhỏ)
-
-| Ký hiệu | Cấu hình / lệnh | Ý tưởng |
+| Tham số | Mặc định | Ý nghĩa |
 |---|---|---|
-| CT5 | `improve.py --fix` → `<cấu hình>_fix` | Schema-guard: chạy SQL, đọc lỗi SQLite (cột/bảng/alias sai, cột có ký tự đặc biệt, hàm MySQL, `;` lạc), sửa theo schema thật, lặp tối đa 8 lần. Với cấu hình dùng view, sửa trên dummy SQL rồi mở rộng CTE lại. Không gọi LLM. |
-| CT6 | `--methods auto_plain_det,hybrid_ret_plain` | View đặt tên cột gốc (`SEX` thay vì `Patient_SEX`), chỉ thêm tiền tố khi trùng tên. |
-| CT7 | `improve.py --vote mrv=a,b,c` | Bỏ phiếu theo kết quả thực thi giữa nhiều cách biểu diễn schema (bảng gốc, view, truy xuất). |
-| CT8 | `improve.py --feedback <cấu hình>` | Câu vẫn lỗi sau CT5: gọi LLM một lần với thông báo lỗi và đúng danh sách cột, rồi CT5 lại. |
-| đối chứng | `--methods base_ret` | Chỉ truy xuất bảng (không view) - tách hiệu ứng "prompt ngắn" khỏi hiệu ứng "view". |
+| `--methods` | `main` (= `tasql,vsql,vsqlplus`) | Danh sách phương pháp, hoặc `all` (thêm biến thể ablation) |
+| `--sample N` | 0 | Lấy mẫu phân tầng N câu theo CSDL × độ khó |
+| `--num-predict` | 800 | Số token tối đa mỗi câu trả lời (như paper) |
+| `--num-ctx` | 20480 | Ngữ cảnh của Ollama, đủ cho prompt dài nhất |
+| `--embed-model` / `--no-embed` | `nomic-embed-text` | Embedding cho truy hồi lai của V-SQL+; `--no-embed` = chỉ BM25 |
+| `--vsql-evidence` | `query` | V-SQL: nối evidence của BIRD vào `{query}` của Hình 4/5, hoặc `none` |
+| `--k-cand`, `--n-samples`, `--sample-temp` | 5, 4, 0,7 | V-SQL+: số view ứng viên, số dummy SQL bầu chọn, nhiệt độ lấy mẫu |
+| `--all-max-objects`, `--all-max-tokens` | 4, 3500 | V-SQL+: CSDL nhỏ hơn ngưỡng thì đưa hết view vào prompt |
+| `--retry-llm-errors` | tắt | Thử lại các prompt từng bị Ollama báo lỗi |
+| `--workers` | 1 | Số luồng gọi Ollama song song |
+
+Chương trình **chạy tiếp được**: câu đã chấm được bỏ qua, mọi câu trả lời LLM lưu trong `llm_cache.sqlite`. Trước khi chấm, nó gom
+các prompt còn thiếu theo từng vòng và sắp theo thứ tự chữ để Ollama dùng lại KV cache; dòng `[prefetch vong k]` cho biết số prompt
+mỗi loại và thời gian còn lại. Cuối lần chạy in `[KIEM TRA] <phương pháp>: 500/500 dong da cham`.
+
+### Kết quả ghi ra
+
+Mỗi thư mục `--out` có:
+
+| File | Nội dung |
+|---|---|
+| `summary.md`, `summary.csv` | EX tổng và theo độ khó (CI 95% bootstrap), so sánh ghép cặp (McNemar, hiệu chỉnh Holm) với `tasql` / `vsql` / `vsql_paper` / `vsql_fair`, phân loại lỗi, chi phí (lượt gọi, token, thời gian), đóng góp từng thành phần, thống kê view |
+| `predictions_<phương pháp>.jsonl` | Một dòng mỗi câu: SQL cuối, đúng/sai, loại lỗi, dummy SQL, view đã dùng, chi phí; với V-SQL+ còn có view ứng viên, kết quả bầu chọn, giá trị khớp, các lần quay về bảng gốc |
+| `views/<CSDL>.{oracle,oracle_paper,auto}.sql` | View của `vsql`, của `vsql_paper` / `vsql_fair`, và view tự động của V-SQL+ |
+| `llm_cache.sqlite`, `config.json` | Cache câu trả lời LLM và embedding; tham số của lần chạy |
+
+---
+
+## Kiểm thử (không cần GPU, Ollama hay BIRD)
 
 ```bash
-python run_experiment.py --data $D/mini_dev_sqlite.json --db-root $D/dev_databases --model qwen3.5:0.8b --out results/q08_500
-python run_experiment.py ... --model qwen3.5:0.8b --out results/q08_500 --methods base_ret,auto_plain_det,hybrid_ret_plain
-python improve.py results/q08_500 --data $D/mini_dev_sqlite.json --db-root $D/dev_databases --fix \
-    --feedback base_fix --vote mrv=base_fix,auto_det_fix,hybrid_ret_fix,hybrid_fix
-python -c "from vsql import report; report.build('results/q08_500')"
+python tests/test_compare.py   # TA-SQL / V-SQL / V-SQL+ với LLM giả lập, view kiểu Hình 3, giải mã view, xử lý lỗi Ollama 500
 ```
 
-## 4. Metric trong `summary.md`
-- **EX** theo định nghĩa của BIRD (so tập dòng kết quả), tổng và theo độ khó, kèm khoảng tin cậy bootstrap 95%.
-- **So sánh ghép cặp với `vsql` và với `base`**: chênh lệch EX, khoảng tin cậy, kiểm định McNemar chính xác, p hiệu chỉnh Holm.
-- **Phân loại lỗi**: `no such column` / `no such table` / `ambiguous column` (ảo giác schema), cú pháp,
-  kết quả rỗng, kết quả sai.
-- **Chi phí**: số lượt gọi LLM, token vào/ra, thời gian, số đối tượng schema trong prompt, độ phủ bảng đáp án, VES xấp xỉ.
-- **Đóng góp riêng** của từng cải tiến và **thống kê view** từng database.
+---
 
-## 5. Những điểm khác với paper (cần ghi rõ khi báo cáo)
-- **Mô hình**: qwen3 thay cho GPT-3.5/GPT-4, nên số EX tuyệt đối không so trực tiếp được với Bảng 3 của paper.
-  So sánh giữa các cấu hình trong cùng một lần chạy thì hợp lệ.
-- **View của paper không được công bố.** `vsql` mô phỏng quy trình paper mô tả (thiết kế view theo JOIN trong
-  SQL đáp án) bằng thuật toán `views.oracle_views`. Muốn dùng view viết tay, đặt `views_manual/<db_id>.sql`
-  gồm các lệnh `CREATE VIEW ... AS SELECT ...;` (sẽ thay cho view oracle của database đó).
-- **Prompt** do tôi viết lại theo mô tả của paper, không sao nguyên văn phụ lục.
-- **Baseline DIN-SQL, DAIL-SQL không được cài lại.** TA-SQL được cài trong `run_compare.py` (cấu hình `tasql`).
-- Paper không nói có dùng `evidence` và giá trị mẫu hay không; ở đây cả hai được bật cho *mọi* cấu hình
-  (tắt bằng `--no-evidence`, `--samples 0`).
-- View `oracle` nhìn đáp án của tập đánh giá (như paper), nên `vsql`/`vsql_det` có lợi thế không công bằng
-  so với các cấu hình `auto*`/`hybrid*`.
+## Cấu trúc mã
+
+```
+run_compare.py          chạy so sánh TA-SQL / V-SQL / V-SQL+ (notebook gọi file này)
+vsql/methods.py         các phương pháp: tasql, vsql, vsql_paper, vsql_fair, vsqlplus (+ biến thể), chấm điểm
+vsql/tasql_prompts.py   prompt TA-SQL, chép nguyên văn từ mã chính thức
+vsql/autoview.py        dựng view: theo JOIN đáp án (V-SQL, có kiểu Hình 3) và tự động từ khóa ngoại (V-SQL+)
+vsql/views.py           kiểm tra số dòng view, giải mã view -> bảng gốc (CTE)
+vsql/linking.py         liên kết giá trị, BM25 + embedding, hợp nhất RRF (V-SQL+)
+vsql/meta.py            mô tả cột từ database_description/*.csv, trình bày schema kiểu Bảng 6
+vsql/db.py              đọc schema, khóa ngoại (kèm suy luận), chạy SQL có timeout
+vsql/llm.py             client Ollama / API kiểu OpenAI, cache SQLite, thử lại khi lỗi
+vsql/report.py          EX, CI bootstrap, McNemar + Holm, phân loại lỗi, chi phí
+notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb   notebook Colab chính
+tests/                  kiểm thử với LLM giả lập và CSDL mẫu (test_compare.py, make_toy.py)
+docs/                   hướng dẫn, thiết kế, nhận xét kết quả
+```
+
+## Tài liệu
+
+| File | Nội dung |
+|---|---|
+| [`docs/HUONG_DAN_COLAB_SO_SANH.md`](docs/HUONG_DAN_COLAB_SO_SANH.md) | Hướng dẫn chạy notebook Colab từng bước, giải thích các lựa chọn, xử lý lỗi |
+| [`docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`](docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md) | Kiểm tra phần tái hiện cũ, hai phiên bản dữ liệu, thiết kế V-SQL / V-SQL+, các điểm khác paper |
+| [`docs/NHAN_XET_KET_QUA_QWEN35.md`](docs/NHAN_XET_KET_QUA_QWEN35.md) | Nhận xét, đánh giá kết quả qwen3.5:0.8b và 4b |
+
+## Những điểm khác paper (tóm tắt)
+
+- **Model**: Qwen nhỏ qua Ollama thay cho GPT-3.5 / GPT-4, nên số tuyệt đối không so được với Bảng 3 của paper; điều so được là
+  thứ tự và chênh lệch giữa các phương pháp trên cùng model.
+- **View**: paper không công bố view thiết kế tay; mã dựng view theo JOIN của SQL đáp án, đúng quy trình paper mô tả (mục 6).
+  View theo JOIN đáp án nhìn đáp án của chính tập đánh giá (như paper), nên V-SQL có lợi thế mà V-SQL+ (view tự động) không có.
+- **Evidence**: paper không nói rõ; mọi phương pháp đều dùng evidence của BIRD.
+- **Phiên bản dữ liệu**: paper không ghi; mặc định dùng bản 2025-07-04.
+- **TA-SQL**: hậu xử lý được nới để đọc được câu trả lời của mô hình chat; giá trị mẫu lấy theo thứ tự cố định thay vì ngẫu
+  nhiên để chạy lại ra cùng kết quả.

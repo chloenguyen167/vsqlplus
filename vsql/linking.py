@@ -4,14 +4,27 @@ ValueIndex   : chi muc gia tri van ban that trong DB (gia tri da chuan hoa -> ca
 link_values  : khop n-gram / chuoi trong ngoac cua cau hoi + evidence voi gia tri that
                (vd "Dark Horse Comics" -> publisher.publisher_name).
 link_columns : ten cot duoc nhac thang trong cau hoi / evidence (vd "A15", "Currency").
-ColumnRetriever : BM25 + embedding tren tai lieu tung cot (ten, mo ta, gia tri mau), hop nhat RRF.
+HybridIndex  : BM25 + embedding tren tai lieu tung cot / tung view (ten, mo ta, gia tri mau), hop nhat RRF.
 """
 import math
 import re
 from collections import Counter, defaultdict
 
 from .db import connect, qi
-from .retrieval import tokens
+
+
+def tokens(text):
+    """Tach tu cho BM25: tach camelCase, chu thuong, bo 's' so nhieu don gian."""
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(text))
+    out = []
+    for w in re.findall(r"[A-Za-z0-9]+", text.lower()):
+        if len(w) > 3 and w.endswith("ies"):
+            w = w[:-3] + "y"
+        elif len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+            w = w[:-1]
+        out.append(w)
+    return out
+
 
 STOP = set("""a an the of in on at to for from by with and or not no is are was were be been being this that these those
 which who whom whose what when where why how many much more most less least than then there their they them it its
@@ -88,7 +101,8 @@ def link_values(vindex, question, evidence="", max_cols_per_value=6):
             for t, c, v in hits:
                 k = (t, c, v)
                 best[k] = max(best.get(k, 0.0), w / math.sqrt(spread))
-    return sorted(((v, t, c, w) for (t, c, v), w in best.items()), key=lambda x: (-x[3], x[1], x[2]))
+    # sap xep day du (ca gia tri) de thu tu khong phu thuoc thu tu duyet set (hash seed) -> prompt tai lap duoc
+    return sorted(((v, t, c, w) for (t, c, v), w in best.items()), key=lambda x: (-x[3], x[1], x[2], str(x[0])))
 
 
 def link_columns(schema, question, evidence=""):

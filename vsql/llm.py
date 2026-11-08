@@ -1,5 +1,5 @@
 """Client LLM co cache: Ollama (model chay local, vd tren GPU Colab), API tuong thich OpenAI (Groq, Gemini, OpenRouter,
-vLLM...), va MockLLM cho kiem thu."""
+vLLM...)."""
 import hashlib
 import json
 import os
@@ -221,18 +221,6 @@ class OpenAICompatLLM:
 
     def embed(self, model, texts):
         raise NotImplementedError("Dung --retriever bm25 khi chay qua API")
-
-
-class MockLLM:
-    """Tra loi theo kich ban {(qid, stage): sql} - chi de kiem thu duong ong, khong phai mo hinh."""
-
-    def __init__(self, script):
-        self.script = script
-
-    def chat(self, prompt, meta=None, **opts):
-        sql = self.script.get((meta["qid"], meta["stage"]), "")
-        return {"text": f"```sql\n{sql}\n```", "prompt_tokens": len(prompt) // 4, "tokens_estimated": True,
-                "completion_tokens": len(sql) // 4, "seconds": 0.0}
 
 
 def extract_sql(text):

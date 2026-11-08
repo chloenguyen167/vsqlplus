@@ -128,9 +128,7 @@ class ScriptLLM:
         self.stages[st.rstrip("0123456789")] += 1
         k = u % len(ITEMS)
         gold = ITEMS[k]["gold"]
-        if st == "base":
-            sql = gold
-        elif st == "tasl":
+        if st == "tasl":
             sql = gold[len("SELECT "):]
         elif st == "talog_sr":
             sql = "df1 = df.where(...)\nres = df1.select(...)"
@@ -162,16 +160,12 @@ llm = ScriptLLM()
 run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "all",
                   "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
                   "--all-max-objects", "0", "--all-max-tokens", "0", "--k-cand", "6", "--n-samples", "3"], llm=llm)
-assert not (out / "predictions_base.jsonl").exists()         # mac dinh khong chay base
-run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "base",
-                  "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
-                  "--all-max-objects", "0", "--all-max-tokens", "0", "--k-cand", "6", "--n-samples", "3"], llm=llm)
 got = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().splitlines()]
-       for m in ["base", "tasql", "vsql", "vsqlplus", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb",
+       for m in ["tasql", "vsql", "vsqlplus", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb",
                  "vsqlplus_det"]}
 assert all(len(r) == len(items) == 8 for r in got.values()), {m: len(r) for m, r in got.items()}   # du ca ban ghi trung
 ex = {m: sum(r["correct"] for r in rs) for m, rs in got.items()}
-assert ex["base"] == 8 and ex["tasql"] == 8, ex
+assert ex["tasql"] == 8, ex
 assert ex["vsql"] == 7, ex                       # sai: ao giac kieu Table 1 cua paper o giai doan 2
 assert ex["vsqlplus"] == 8 and ex["vsqlplus_det"] == 8 and ex["vsqlplus_nofb"] == 7 and ex["vsqlplus_all"] == 7, ex
 r3 = got["vsqlplus"][3]

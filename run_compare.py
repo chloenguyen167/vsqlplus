@@ -32,7 +32,7 @@ def parse_args(argv=None):
     a.add_argument("--tasql-meaning", default="", help="column_meaning.json cua TA-SQL (khong co: dung mo ta CSV)")
     a.add_argument("--out", default="results/cmp")
     a.add_argument("--methods", default="main",
-                   help="main (tasql,vsql,vsqlplus) | all (+ ablation) | danh sach, vd: " + ",".join(MAIN + EXTRA + ABLATIONS + ["base"]))
+                   help="main (tasql,vsql,vsqlplus) | all (+ ablation) | danh sach, vd: " + ",".join(MAIN + EXTRA + ABLATIONS))
     # LLM
     a.add_argument("--model", default="qwen3:8b")
     a.add_argument("--backend", default="ollama", choices=["ollama", "openai"])
@@ -53,7 +53,7 @@ def parse_args(argv=None):
     a.add_argument("--seed", type=int, default=0)
     a.add_argument("--db", default="")
     a.add_argument("--no-evidence", dest="evidence", action="store_false")
-    a.add_argument("--samples", type=int, default=3, help="so gia tri mau moi cot trong prompt (base, V-SQL+)")
+    a.add_argument("--samples", type=int, default=3, help="so gia tri mau moi cot trong prompt (V-SQL+)")
     a.add_argument("--vsql-evidence", default="query", choices=["query", "none"],
                    help="V-SQL: noi evidence vao {query} cua Hinh 4/5 (template giu nguyen) hoac khong dung evidence")
     a.add_argument("--no-infer-fk", action="store_true", help="khong suy them khoa ngoai (debit_card thieu khai bao)")
@@ -316,7 +316,7 @@ def main(argv=None, llm=None):
         if n_err:
             print(f"[LOI LLM] {m}: {n_err} cau co it nhat mot loi goi LLM (tinh la sai). Xem /content/ollama.log; "
                   f"chay lai voi --retry-llm-errors de thu lai.")
-    print(report.build(out, refs=[r for r in ("tasql", "vsql", "vsql_paper", "vsql_fair", "base") if r in methods]))
+    print(report.build(out, refs=[r for r in ("tasql", "vsql", "vsql_paper", "vsql_fair") if r in methods]))
     print(f"\nDa ghi: {out / 'summary.md'}, {out / 'summary.csv'}")
 
 

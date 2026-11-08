@@ -5,34 +5,21 @@ import math
 import random
 from pathlib import Path
 
-from .pipeline import METHODS
-
 DIFFS = ["simple", "moderate", "challenging"]
 OUTCOMES = ["schema_column", "schema_table", "ambiguous_column", "syntax", "no_sql", "timeout", "other_exec",
             "wrong_empty", "wrong_result"]
 
 
-EXTRA = {"_fix": "+ CT5 schema-guard", "mrv": "CT7 bo phieu theo ket qua thuc thi"}
-
-
 def note(m):
     from .methods import NOTES
-    if m in NOTES:
-        return NOTES[m]
-    if m in METHODS:
-        return METHODS[m]["note"]
-    for k, v in EXTRA.items():
-        if m.endswith(k) and m[:-len(k)] in METHODS:
-            return METHODS[m[:-len(k)]]["note"] + " " + v
-    return next((v for k, v in EXTRA.items() if m.startswith(k)), m)
+    return NOTES.get(m, m)
 
 
 def load(out_dir):
     res = {}
     from .methods import NOTES
     found = sorted(p.stem[len("predictions_"):] for p in Path(out_dir).glob("predictions_*.jsonl"))
-    order = [m for m in NOTES if m in found] + [m for m in METHODS if m in found and m not in NOTES]
-    order += [m for m in found if m not in order and "old_prompt" not in m]
+    order = [m for m in NOTES if m in found] + [m for m in found if m not in NOTES]
     for m in order:
         p = Path(out_dir) / f"predictions_{m}.jsonl"
         if p.exists():
@@ -100,10 +87,10 @@ def build(out_dir, ref="vsql", refs=None):
         rows_csv.append(dict(method=m, n=len(ok), ex=100 * sum(ok) / len(ok), ci_lo=100 * lo, ci_hi=100 * hi,
                              **{f"ex_{d}": (100 * sum(v) / len(v) if v else "") for d, v in by.items()}))
 
-    # ---- 2. so sanh ghep cap (voi vsql = paper, va voi base), p hieu chinh Holm trong moi bang
-    titles = {"vsql": "V-SQL theo paper", "tasql": "TA-SQL, baseline cua paper", "base": "baseline 1 giai doan",
+    # ---- 2. so sanh ghep cap voi tung phuong phap tham chieu, p hieu chinh Holm trong moi bang
+    titles = {"vsql": "V-SQL theo paper", "tasql": "TA-SQL, baseline cua paper",
               "vsql_paper": "V-SQL sat Hinh 3", "vsql_fair": "V-SQL chinh phan paper khong noi"}
-    refs = [x for x in (refs or (ref, "base")) if x in res]
+    refs = [x for x in (refs or ("tasql", ref)) if x in res]
     for k, rf in enumerate(refs):
         title = titles.get(rf, rf)
         md += [f"\n## 2{'abcdef'[k]}. So sanh ghep cap voi `{rf}` ({title})\n",
@@ -154,19 +141,13 @@ def build(out_dir, ref="vsql", refs=None):
             calls=avg("calls"), prompt_tokens=avg("prompt_tokens"), completion_tokens=avg("completion_tokens"),
             llm_seconds=avg("llm_seconds"), n_objects=avg("n_objects"), full_coverage=100 * full, ves_approx=ves)
     md.append("\n- *Do phu bang dap an*: ti le cau ma moi bang trong SQL dap an deu nam trong schema dua cho LLM "
-              "(< 100% o `hybrid_ret` la loi cua buoc truy xuat).\n- *VES xap xi*: sqrt(t_dap_an / t_du_doan) "
+              "(< 100% o V-SQL+ la do buoc chon view bo sot bang).\n- *VES xap xi*: sqrt(t_dap_an / t_du_doan) "
               "tren cau dung, do 1 lan chay nen chi mang tinh tham khao.")
 
     # ---- 5. doc ablation
     def ex(m):
         return 100 * sum(int(res[m][q]["correct"]) for q in qids) / len(qids) if m in res else None
-    pairs = [("CT1 viet lai tat dinh (cung view, cung dummy SQL)", "vsql_det", "vsql"),
-             ("CT2 view tu dong thay view theo dap an (cung LLM tai tao)", "auto_llm", "vsql"),
-             ("CT1 tren view tu dong", "auto_det", "auto_llm"),
-             ("CT3 schema lai (them bang goc)", "hybrid", "auto_det"),
-             ("CT4 truy xuat top-k", "hybrid_ret", "hybrid"),
-             ("Dong gop cua view so voi baseline 1 giai doan", "vsql", "base"),
-             ("V-SQL (paper) so voi TA-SQL", "vsql", "tasql"),
+    pairs = [("V-SQL (paper) so voi TA-SQL", "vsql", "tasql"),
              ("V-SQL+ so voi V-SQL (paper)", "vsqlplus", "vsql"),
              ("V-SQL+ so voi TA-SQL", "vsqlplus", "tasql"),
              ("Huong 1 rieng: view tu dong so voi view theo dap an", "vsqlplus_all", "vsql"),
@@ -190,11 +171,12 @@ def build(out_dir, ref="vsql", refs=None):
     vs = out_dir / "views_stats.json"
     if vs.exists():
         st = json.loads(vs.read_text())
-        md += ["\n## 6. Thong ke view\n", "| DB | Bang | FK | View oracle (trong do co nhan ban dong) | View auto | View auto giu nguyen so dong |",
-               "|---|---|---|---|---|---|"]
+        md += ["\n## 6. Thong ke view\n",
+               "| DB | Bang | FK (trong do suy them) | View theo JOIN dap an (V-SQL) / giu so dong | View tu dong (V-SQL+) / giu so dong |",
+               "|---|---|---|---|---|"]
         for db, s in st.items():
-            md.append(f"| {db} | {s['tables']} | {s['fks']} | {s['oracle']} ({s.get('oracle_fan', 0)}) | {s['auto']} | "
-                      f"{s.get('auto_rows_equal', s.get('auto_ok', '-'))} |")
+            md.append(f"| {db} | {s['tables']} | {s['fks']} ({s.get('inferred_fks', 0)}) | {s['oracle']} / {s.get('oracle_ok', '-')} | "
+                      f"{s['auto']} / {s.get('auto_ok', '-')} |")
 
     (out_dir / "summary.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     keys = []

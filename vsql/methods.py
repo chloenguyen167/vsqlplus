@@ -1,17 +1,19 @@
-"""Ba phuong phap so sanh tren cung bo du lieu, cung LLM, cung cach cham (base chi chay khi goi rieng --methods base):
+"""Cac phuong phap so sanh tren cung bo du lieu, cung LLM, cung cach cham:
 
-  base      : (tuy chon, khong thuoc so sanh) mot lan goi tren toan bo bang goc.
   tasql     : TA-SQL (Qu et al., ACL Findings 2024) - baseline ma paper V-SQL so sanh. Cai lai dung ma nguon chinh thuc:
               TASL (dummy SQL tren toan schema -> trich bang/cot) + TALOG (bieu dien ky hieu SR kieu pandas -> SQL).
               Prompt chep nguyen van (vsql/tasql_prompts.py).
-  vsql      : V-SQL dung theo paper: view thiet ke tu cac phep JOIN cua SQL dap an (muc 6 cua paper), giai doan 1 sinh dummy
+  vsql      : V-SQL tai hien: view thiet ke tu cac phep JOIN cua SQL dap an (muc 6 cua paper), giai doan 1 sinh dummy
               SQL tren view bang prompt Hinh 4, giai doan 2 LLM khoi phuc ve bang goc bang prompt Hinh 5.
+  vsql_paper: nhu vsql, view sat Hinh 3 (bo cot id khoa ngoai da thay bang gia tri, alias = ten bang).
+  vsql_fair : nhu vsql_paper; phan paper khong noi (D' cua tung CSDL, cach trinh bay schema) chinh cho ngang TA-SQL.
   vsqlplus  : cai tien (V-SQL+), ket hop 2 huong, giai doan 2 giu nguyen nhu paper:
               Huong 1 - sinh view tu dong tu khoa ngoai (chi noi N-1 khi khoa duoc tham chieu la duy nhat, kiem tra so dong,
                         suy them khoa ngoai thieu khai bao, ten cot sach, ghi nguon goc cot).
               Huong 2 - chon view dung bang truy hoi lai (BM25 + embedding), bo tro boi: truy hoi muc cot roi gop len view,
                         lien ket gia tri voi DB, bau chon nhieu mau, schema lai (quay ve bang goc khi LLM dung cot khong
                         co trong view), va CSDL nho thi dua het view vao prompt.
+              vsqlplus_fig4: chi 2 huong; template va cach trinh bay schema y nhu vsql_fair.
               Bien the: vsqlplus_all (chi huong 1), vsqlplus_novote, vsqlplus_novl, vsqlplus_nofb, vsqlplus_det.
 """
 import difflib
@@ -29,7 +31,6 @@ from .llm import extract_sql
 from .meta import Descriptions, load_tables_json, table6_table, table6_view, table_ddl
 
 NOTES = {
-    "base": "(tuy chon) zero-shot 1 giai doan tren bang goc",
     "tasql": "TA-SQL (baseline cua paper): TASL dummy SQL + TALOG SR->SQL",
     "vsql": "V-SQL dung theo paper: view theo JOIN dap an, schema Bang 6, prompt Hinh 4 + Hinh 5",
     "vsqlplus": "V-SQL+ = huong 1 (sinh view tu dong) + huong 2 (chon view bang truy hoi lai); giai doan 2 nhu paper",
@@ -47,16 +48,6 @@ MAIN = ["tasql", "vsql", "vsqlplus"]                      # so sanh chinh: TA-SQ
 ABLATIONS = ["vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb", "vsqlplus_det"]
 
 # --------------------------------------------------------------------------- prompt
-P_BASE = """You are an experienced database administrator, please answer "question" by ONE SQLite query with no explanation.
-
-# db schema
-{schema}
-
-# question
-{question}
-{evidence}
-Return only the SQL inside a ```sql code block."""
-
 # V-SQL, Hinh 4 cua paper (nguyen van). Evidence cua BIRD (neu dung) nam trong {query}, khong them muc nao vao template.
 P_VSQL_1 = """# target
 You are an experienced database administrator, please answer "question" by sql with no explanation.
@@ -227,15 +218,6 @@ class Asker:
         for (p, o), r in zip(reqs, rs):
             self._acc(r, (p, json.dumps(o, sort_keys=True)))
         return [r["text"] for r in rs]
-
-
-# --------------------------------------------------------------------------- base
-def run_base(item, ctx, ask, rec, args):
-    s = ctx.schema
-    schema = "\n\n".join(ctx.ddl(t) for t in s.tables)
-    rec["n_objects"] = len(s.tables)
-    rec["schema_tables"] = list(s.tables)
-    return clean(ask(P_BASE.format(schema=schema, question=item["question"], evidence=_ev(item, args.evidence)), "base"))
 
 
 # --------------------------------------------------------------------------- TA-SQL
@@ -518,7 +500,7 @@ def plus_rank(px, item, links, colhits):
     for _, t, c, w in links:
         for o in px.objects_with(t, c):
             link[o] += w
-    for t, c in colhits:
+    for t, c in sorted(colhits):                    # sorted: thu tu cong diem co dinh -> xep hang tai lap duoc
         for o in px.objects_with(t, c):
             link[o] += 0.5
     r3 = [o for o, _ in link.most_common()]
@@ -691,9 +673,7 @@ def run_item(method, item, ctx, llm, args):
                method=method, calls=0, prompt_tokens=0, completion_tokens=0, llm_seconds=0.0, dummy_sql=None,
                views_used=[], n_objects=0)
     ask = Asker(llm, rec, item["uid"])
-    if method == "base":
-        final = run_base(item, ctx, ask, rec, args)
-    elif method == "tasql":
+    if method == "tasql":
         final = run_tasql(item, ctx, ask, rec, args)
     elif method == "vsql":
         final = run_vsql(item, ctx, ask, rec, args)

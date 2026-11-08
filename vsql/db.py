@@ -186,25 +186,6 @@ class Schema:
                         t.fks.append(FK(t.name, (c.name,), p.name, (pk,), "inferred"))
                         break
 
-    def table_ddl(self, name, n_samples=3):
-        t = self.tables[name]
-        lines = []
-        for c in t.columns:
-            s = f"  {qi(c.name)} {c.type}".rstrip()
-            if [c.name] == t.pk:
-                s += " PRIMARY KEY"
-            s += ","
-            ex = self.samples.get((name, c.name), [])[:n_samples]
-            if ex:
-                s += "  -- e.g. " + ", ".join(_show(v) for v in ex)
-            lines.append(s)
-        if len(t.pk) > 1:
-            lines.append("  PRIMARY KEY (" + ", ".join(qi(c) for c in t.pk) + "),")
-        for fk in t.fks:
-            lines.append(f"  FOREIGN KEY ({', '.join(qi(c) for c in fk.cols)}) REFERENCES "
-                         f"{qi(fk.ref_table)}({', '.join(qi(c) for c in fk.ref_cols)}),")
-        return f"CREATE TABLE {qi(name)} (\n" + "\n".join(lines) + "\n);"
-
 
 def _show(v):
     if isinstance(v, str):

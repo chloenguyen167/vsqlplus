@@ -4,8 +4,8 @@ Tài liệu này ghi lại: (1) kết quả kiểm tra phần tái hiện cũ v�
 paper, với TA-SQL là baseline; (3) thiết kế cải tiến V-SQL+; (4) cách chạy trên Colab T4.
 
 Mã mới: `vsql/methods.py`, `vsql/autoview.py`, `vsql/linking.py`, `vsql/meta.py`, `vsql/tasql_prompts.py`, `run_compare.py`,
-`tests/test_compare.py`, `notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`. Mã cũ (CT1–CT8, `run_experiment.py`, `improve.py`)
-vẫn giữ nguyên để đối chiếu.
+`tests/test_compare.py`, `notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`. Mã của lần tái hiện cũ đã được gỡ khỏi repo (vẫn còn
+trong lịch sử git); mục 1 dưới đây chỉ ghi lại các vấn đề tìm thấy ở lần tái hiện đó.
 
 ---
 
