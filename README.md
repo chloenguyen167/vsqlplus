@@ -29,12 +29,15 @@ Hướng dẫn chi tiết từng bước, giải thích mọi lựa chọn ở B
 
 ## Các phương pháp
 
+**Notebook Colab chỉ chạy 3 phương pháp:** `tasql` (luôn chạy), `vsql_fair` (hiển thị là **V-SQL**) và `vsqlplus` (**V-SQL+**).
+Các phương pháp còn lại trong bảng chỉ chạy được bằng dòng lệnh (`run_compare.py --methods ...`).
+
 | Phương pháp | Mô tả | Lượt gọi LLM/câu |
 |---|---|---|
 | `tasql` | **TA-SQL**, baseline của paper (luôn chạy). Cài theo [mã chính thức](https://github.com/quge2023/TA-SQL): TASL (dummy SQL → trích bảng/cột) + TALOG (biểu diễn ký hiệu SR → SQL). Prompt chép nguyên văn (`vsql/tasql_prompts.py`), mô tả cột lấy từ `column_meaning.json` của TA-SQL | 3 |
 | `vsql` | **V-SQL tái hiện, bản đầu tiên**: view thiết kế theo JOIN của SQL đáp án (mục 6 của paper); prompt Hình 4 (giai đoạn 1) và Hình 5 (giai đoạn 2, LLM khôi phục SQL) nguyên văn; schema dạng Bảng 6 | ~2 |
 | `vsql_paper` | V-SQL với **view sát Hình 3**: bỏ cột id khóa ngoại đã thay bằng giá trị, alias là tên bảng, nối theo thứ tự cột | ~2 |
-| `vsql_fair` | V-SQL **giữ phần paper quy định, chỉnh phần paper không nói** cho ngang TA-SQL: hiện cả các bảng không bị view nào thay thế; schema có mô tả giá trị và giá trị mẫu | ~2 |
+| `vsql_fair` | **V-SQL dùng trong notebook.** Giữ phần paper quy định, chỉnh phần paper không nói cho ngang TA-SQL: view theo JOIN đáp án, giữ cột khóa ngoại; đưa hết view của CSDL (không thêm bước chọn view); hiện cả các bảng không bị view nào thay thế; schema có mô tả giá trị và giá trị mẫu | ~2 |
 | `vsqlplus` | **V-SQL+ đầy đủ**: 2 hướng cải tiến + prompt giai đoạn 1 mới | ~4–4,5 |
 | `vsqlplus_fig4` | **V-SQL+ chỉ 2 hướng**: template và cách trình bày schema y như `vsql_fair`, chỉ khác ở cách sinh view và cách chọn view | ~4 |
 
@@ -47,7 +50,7 @@ Hướng dẫn chi tiết từng bước, giải thích mọi lựa chọn ở B
 
 Giai đoạn 2 (LLM khôi phục SQL theo Hình 5) giữ nguyên như paper ở mọi bản V-SQL / V-SQL+.
 
-**Biến thể đối chiếu** (bật `ABLATION` trong notebook): `vsqlplus_all` (chỉ hướng 1), `vsqlplus_novote`, `vsqlplus_novl`,
+**Biến thể đối chiếu** (chỉ chạy bằng dòng lệnh): `vsqlplus_all` (chỉ hướng 1), `vsqlplus_novote`, `vsqlplus_novl`,
 `vsqlplus_nofb` (bỏ từng thành phần của hướng 2), `vsqlplus_det` (thay giai đoạn 2 bằng giải mã tất định; không thuộc đề xuất,
 chỉ để đo).
 
@@ -134,7 +137,7 @@ Mỗi thư mục `--out` có:
 |---|---|
 | `summary.md`, `summary.csv` | EX tổng và theo độ khó (CI 95% bootstrap), so sánh ghép cặp (McNemar, hiệu chỉnh Holm) với `tasql` / `vsql` / `vsql_paper` / `vsql_fair`, phân loại lỗi, chi phí (lượt gọi, token, thời gian), đóng góp từng thành phần, thống kê view |
 | `predictions_<phương pháp>.jsonl` | Một dòng mỗi câu: SQL cuối, đúng/sai, loại lỗi, dummy SQL, view đã dùng, chi phí; với V-SQL+ còn có view ứng viên, kết quả bầu chọn, giá trị khớp, các lần quay về bảng gốc |
-| `views/<CSDL>.{oracle,oracle_paper,auto}.sql` | View của `vsql`, của `vsql_paper` / `vsql_fair`, và view tự động của V-SQL+ |
+| `views/<CSDL>.{oracle,oracle_paper,oracle_fair,auto}.sql` | View của `vsql`, `vsql_paper`, `vsql_fair`, và view tự động của V-SQL+ |
 | `llm_cache.sqlite`, `config.json` | Cache câu trả lời LLM và embedding; tham số của lần chạy |
 
 ---

@@ -208,6 +208,8 @@ run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(o
 s1 = [p for st, p in seen if st == "vsql_s1"]
 assert s1 and all(p.startswith(P_VSQL_1.split("{relevant_db_schema}")[0]) for p in s1)           # template Hinh 4
 assert "| value_description | example_values" in s1[0] and "# table: publisher" in s1[0]         # bang tra cuu van hien
+assert "eye_colour_id |" in s1[0] and "eye_colour |" in s1[0]          # vsql_fair giu cot khoa ngoai trong view
+assert (out / "views" / "superhero.oracle_fair.sql").exists()
 assert sum(json.loads(l)["correct"] for l in (out / "predictions_vsql_fair.jsonl").read_text().splitlines()) == 7   # cau ao giac Table 1 o gd2
 summary = (out / "summary.md").read_text()
 assert "So cau hoi chung cho moi cau hinh: **8**" in summary

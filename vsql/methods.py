@@ -6,7 +6,8 @@
   vsql      : V-SQL tai hien: view thiet ke tu cac phep JOIN cua SQL dap an (muc 6 cua paper), giai doan 1 sinh dummy
               SQL tren view bang prompt Hinh 4, giai doan 2 LLM khoi phuc ve bang goc bang prompt Hinh 5.
   vsql_paper: nhu vsql, view sat Hinh 3 (bo cot id khoa ngoai da thay bang gia tri, alias = ten bang).
-  vsql_fair : nhu vsql_paper; phan paper khong noi (D' cua tung CSDL, cach trinh bay schema) chinh cho ngang TA-SQL.
+  vsql_fair : view theo JOIN dap an kieu Hinh 3 nhung giu cot khoa ngoai; dua het view cua CSDL (khong them buoc chon view
+              nao ngoai paper); phan paper khong noi (bang hien canh view, cach trinh bay schema) chinh cho ngang TA-SQL.
   vsqlplus  : cai tien (V-SQL+), ket hop 2 huong, giai doan 2 giu nguyen nhu paper:
               Huong 1 - sinh view tu dong tu khoa ngoai (chi noi N-1 khi khoa duoc tham chieu la duy nhat, kiem tra so dong,
                         suy them khoa ngoai thieu khai bao, ten cot sach, ghi nguon goc cot).
@@ -40,7 +41,7 @@ NOTES = {
     "vsqlplus_nofb": "V-SQL+ bo schema lai (huong 2)",
     "vsqlplus_det": "V-SQL+ thay giai doan 2 bang giai ma tat dinh (ngoai de xuat, de doi chieu)",
     "vsql_paper": "V-SQL sat Hinh 3: view bo cot khoa ngoai da thay bang gia tri, alias = ten bang; prompt Hinh 4 + Hinh 5",
-    "vsql_fair": "V-SQL dung phan paper quy dinh (Hinh 3/4/5); phan paper khong noi chinh cho ngang TA-SQL",
+    "vsql_fair": "V-SQL theo paper (view theo JOIN dap an, giu cot khoa ngoai, Hinh 4/5); phan paper khong noi chinh cho ngang TA-SQL",
     "vsqlplus_fig4": "V-SQL+ chi 2 huong (view tu dong + chon view); gd1/gd2 cung template + schema nhu vsql_fair",
 }
 EXTRA = ["vsql_paper", "vsql_fair", "vsqlplus_fig4"]                     # chay khi chon rieng (notebook: tick o tuong ung)
@@ -168,6 +169,13 @@ class DbCtx:
         tri cua bang cha (giu khoa chinh bang goc), alias = ten bang (chi bang noi nhieu lan moi co alias), noi theo thu tu cot."""
         return self.lazy("oracle_paper", lambda: V.validate(
             self.schema, A.oracle_views(self.schema, self.gold_sqls, paper=True)))
+
+    @property
+    def oracle_fair(self):
+        """View cua vsql_fair: nhu oracle_paper (theo JOIN dap an, alias = ten bang, noi theo thu tu cot) nhung GIU cot khoa
+        ngoai, vi vsql_fair van hien bang tra cuu canh view (bo cot thi LLM noi view voi bang qua cot khong ton tai)."""
+        return self.lazy("oracle_fair", lambda: V.validate(
+            self.schema, A.oracle_views(self.schema, self.gold_sqls, paper=True, keep_fk=True)))
 
     @property
     def auto(self):
@@ -680,7 +688,7 @@ def run_item(method, item, ctx, llm, args):
     elif method == "vsql_paper":
         final = run_vsql(item, ctx, ask, rec, args, views=ctx.oracle_paper)
     elif method == "vsql_fair":
-        final = run_vsql(item, ctx, ask, rec, args, views=ctx.oracle_paper, fair=True)
+        final = run_vsql(item, ctx, ask, rec, args, views=ctx.oracle_fair, fair=True)
     elif method.startswith("vsqlplus"):
         final = run_plus(item, ctx, ask, rec, args, llm, method[len("vsqlplus_"):] if "_" in method else "")
     else:

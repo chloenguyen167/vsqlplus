@@ -115,12 +115,16 @@ thiết kế tay theo JOIN đáp án (mục 6), mục 4.3 chỉ nói Hình 2 dù
 |---|---|
 | Hai giai đoạn; giai đoạn 2 do LLM khôi phục SQL (Hình 5) | **D′ của từng CSDL** (paper không công bố): các bảng không bị view nào thay thế vẫn hiện trong schema, nên câu hỏi về chính bảng `customers`, `gasstations`, `circuits`… không phải đi vòng qua view |
 | Prompt Hình 4 và Hình 5 nguyên văn | **Cách trình bày schema** (Bảng 6 chỉ là mô tả dataset): thêm cột `value_description` và `example_values` ("all possible values are […]" / "example values are […]"), tức đúng loại thông tin TA-SQL nhận được |
-| View kiểu Hình 3, thiết kế theo JOIN của đáp án (như `vsql_paper`) | Evidence: nối vào `{query}` (như mọi phương pháp) |
+| View thiết kế theo JOIN của đáp án; đưa hết view của CSDL vào prompt (paper không mô tả cách lấy "relevant views", nên không thêm bước chọn view nào) | Evidence: nối vào `{query}` (như mọi phương pháp) |
+| | **Giữ cột khóa ngoại trong view** (Hình 3 bỏ các cột này, nhưng paper không hiện bảng tra cứu cạnh view; khi bảng tra cứu vẫn hiện, bỏ cột làm mô hình nối view với bảng qua cột không tồn tại) |
 | Nhiệt độ 0, top-p 1, tối đa 800 token; không self-consistency, không sửa lỗi | |
 
 Hai điểm được chỉnh này nhắm vào hai nguồn thua lớn nhất của V-SQL ở giai đoạn 1 với qwen3.5:4b: câu chỉ cần 1 bảng (V-SQL giai
 đoạn 1 đúng 21/86 câu, TA-SQL đúng 49/86), và thiếu giá trị mẫu khi lọc. Bất lợi lớn nhất là giai đoạn 2 thì **không chỉnh**, vì
-paper quy định rõ (LLM khôi phục theo Hình 5, không sửa lỗi). Chưa chạy, nên chưa biết `vsql_fair` có đạt ngang TA-SQL hay không.
+paper quy định rõ (LLM khôi phục theo Hình 5, không sửa lỗi).
+
+Cập nhật 12/11: lần chạy qwen2.5-coder:7b dùng bản `vsql_fair` cũ (view bỏ cột khóa ngoại): 108/500 SQL nháp hỏng vì dùng cột
+khóa ngoại đã bị bỏ. Bản hiện tại giữ các cột này; cần chạy lại `vsql_fair`.
 
 ### 2.2 TA-SQL (`tasql`) — baseline của paper
 

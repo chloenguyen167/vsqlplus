@@ -89,7 +89,7 @@ def build(out_dir, ref="vsql", refs=None):
 
     # ---- 2. so sanh ghep cap voi tung phuong phap tham chieu, p hieu chinh Holm trong moi bang
     titles = {"vsql": "V-SQL theo paper", "tasql": "TA-SQL, baseline cua paper",
-              "vsql_paper": "V-SQL sat Hinh 3", "vsql_fair": "V-SQL chinh phan paper khong noi"}
+              "vsql_paper": "V-SQL sat Hinh 3", "vsql_fair": "V-SQL theo paper, view giu khoa ngoai (notebook goi la V-SQL)"}
     refs = [x for x in (refs or ("tasql", ref)) if x in res]
     for k, rf in enumerate(refs):
         title = titles.get(rf, rf)

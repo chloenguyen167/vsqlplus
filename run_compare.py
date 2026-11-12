@@ -243,7 +243,8 @@ def main(argv=None, llm=None):
     for db in sorted({it["db_id"] for it in data}):
         c = ctxs[db] = DbCtx(db, Path(args.db_root) / db, by_db[db], args, tables_json, meaning)
         srcs = [("oracle", c.oracle), ("auto", c.auto)] + (
-            [("oracle_paper", c.oracle_paper)] if {"vsql_paper", "vsql_fair"} & set(methods) else [])
+            [("oracle_paper", c.oracle_paper)] if "vsql_paper" in methods else []) + (
+            [("oracle_fair", c.oracle_fair)] if "vsql_fair" in methods else [])
         for src, vs in srcs:
             (out / "views" / f"{db}.{src}.sql").write_text(
                 "\n\n".join(f"-- origin={v.origin} row_preserving={v.row_preserving} check={v.verified}\n{v.ddl()}"

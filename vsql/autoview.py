@@ -72,7 +72,7 @@ class _Builder:
         return a
 
 
-def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", lookup_cols=4, paper=False):
+def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", lookup_cols=4, paper=False, keep_fk=False):
     """View N-1 cho bang `base`; allowed: chi noi toi cac bang trong tap nay (None = moi bang).
     Tu muc noi thu 2, view tu dong chi noi bang tra cuu co <= lookup_cols cot (vd colour, gender)."""
     b = _Builder(schema, base, "v_" + base, origin, paper)
@@ -102,7 +102,7 @@ def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", 
                 expand(a, p, d - 1, path | {p})
 
     expand(base, base, depth, {base})
-    if paper and b.v.joins:
+    if paper and not keep_fk and b.v.joins:
         # Hinh 3: bo cot khoa ngoai da duoc thay bang gia tri cua bang cha (gender_id -> gender), giu khoa chinh bang goc
         replaced = {(j.parent, c) for j in b.v.joins for c, _ in j.on}
         keep_pk = set(schema.tables[base].pk)
@@ -115,7 +115,7 @@ def auto_views(schema, depth=2, max_cols=60):
     return [v for v in (build_view(schema, t, depth, None, max_cols, "auto") for t in schema.tables) if v]
 
 
-def oracle_views(schema, gold_sqls, max_cols=10 ** 6, paper=False):
+def oracle_views(schema, gold_sqls, max_cols=10 ** 6, paper=False, keep_fk=False):
     """Tai hien paper: chi tao view cho cac bang 'goc' cua cac mau JOIN trong SQL dap an (tu do moi bang con lai deu
     toi duoc theo chieu N-1), noi toi cac bang cha xuat hien trong cac mau do. Mau JOIN co quan he 1-N (khong co bang
     goc) khong tao view: paper khong mo ta view nhan ban dong; cac bang do van co mat trong schema."""
@@ -129,7 +129,8 @@ def oracle_views(schema, gold_sqls, max_cols=10 ** 6, paper=False):
             allowed.setdefault(roots[0], set()).update(S)
     out = []
     for root, S in sorted(allowed.items()):
-        v = build_view(schema, root, depth=len(S), allowed=S, max_cols=max_cols, origin="oracle", paper=paper)
+        v = build_view(schema, root, depth=len(S), allowed=S, max_cols=max_cols, origin="oracle", paper=paper,
+                       keep_fk=keep_fk)
         if v:
             out.append(v)
     return out
