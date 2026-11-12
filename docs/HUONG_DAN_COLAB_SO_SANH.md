@@ -98,21 +98,42 @@ Tên sai thì Bước 6 báo lỗi ở `ollama pull`. Model lớn hơn khoảng 
 
 #### c) Phương pháp chạy
 
-TA-SQL **luôn chạy** vì là baseline mà paper V-SQL so sánh. Notebook chỉ còn 2 ô tick:
+TA-SQL **luôn chạy** vì là baseline chính mà paper V-SQL so sánh. Các ô tick:
 
 | Ô tick | Là gì | Lượt gọi LLM/câu (ước tính) |
 |---|---|---|
 | (luôn chạy) `tasql` | TA-SQL theo mã chính thức: dummy SQL → trích bảng/cột → biểu diễn SR kiểu pandas → SQL. Prompt chép nguyên văn | 3 |
 | `vsql` ✔ | **V-SQL tái hiện theo paper.** Trong mã và trong thư mục kết quả có tên `vsql_fair` (file `predictions_vsql_fair.jsonl`); notebook hiển thị là "V-SQL". View dựng theo các phép JOIN của SQL đáp án (mục 6 của paper), kiểu Hình 3 (alias là tên bảng) nhưng **giữ cột khóa ngoại**. Đưa hết view của CSDL vào prompt, không thêm bước chọn view (paper không mô tả cách chọn). Giai đoạn 1 dùng prompt Hình 4, giai đoạn 2 dùng prompt Hình 5 (nguyên văn); bảng đưa vào giai đoạn 2 lấy theo định nghĩa của view mà SQL nháp dùng (mục 4.5). Hai điểm paper không nói được chỉnh cho ngang TA-SQL: (1) các bảng không bị view nào thay thế vẫn hiện trong schema; (2) schema có mô tả giá trị và giá trị mẫu | ~2 |
 | `vsqlplus` ✔ | **V-SQL+**: 2 hướng cải tiến, (1) sinh view tự động từ khóa ngoại và (2) chọn view bằng truy hồi lai (BM25 + embedding, truy hồi mức cột, liên kết giá trị, bầu chọn nhiều mẫu, schema lai, CSDL nhỏ đưa hết view). Giai đoạn 2 vẫn là LLM khôi phục theo Hình 5 | ~4–4,5 |
+| `dinsql` (mặc định tắt) | **DIN-SQL**, baseline trong Bảng 3 của paper. Mã chính thức cho BIRD, prompt nguyên văn: liên kết schema → phân loại EASY / NON-NESTED / NESTED → sinh SQL theo loại. **Bỏ bước tự sửa lỗi** như paper. Prompt dài (5–10 nghìn token) nên chậm nhất | 3 |
+| `dailsql` (mặc định tắt) | **DAIL-SQL**, baseline trong Bảng 3. Cấu hình BIRD của mã chính thức: schema `CREATE TABLE` + 7 ví dụ từ tập train BIRD, chọn theo độ giống câu hỏi (đã che tên schema) và khung SQL. **1 mẫu, không bầu chọn** như paper. Bước 3 cài thêm `sentence-transformers`, spaCy; Bước 4 tải `train.json` + `train_tables.json` của BIRD (~5 MB, không tải cả `train.zip`); lần chạy đầu mất vài phút để chuẩn bị ví dụ (lưu lại trong thư mục kết quả) | 2 |
 
-Notebook in hai phép so sánh chính: V-SQL − TA-SQL (tái hiện) và V-SQL+ − TA-SQL, V-SQL+ − V-SQL (cải tiến).
+Notebook in các phép so sánh: V-SQL − TA-SQL (tái hiện), V-SQL+ − TA-SQL, V-SQL+ − V-SQL (cải tiến), và nếu có chạy thì
+V-SQL / V-SQL+ − DIN-SQL, V-SQL / V-SQL+ − DAIL-SQL. Chi tiết DIN-SQL, DAIL-SQL và các điểm khác mã gốc: mục 2.2b của
+`docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`.
 
 Phương pháp đã chạy xong trong thư mục kết quả thì không chạy lại. Ví dụ model đã có `tasql` và `vsqlplus` thì tick thêm `vsql`
 chỉ chạy phần V-SQL.
 
-Các biến thể khác (`vsql` bản đầu, `vsql_paper`, `vsqlplus_fig4`, các biến thể ablation `vsqlplus_all`/`_novote`/`_novl`/`_nofb`/`_det`)
-vẫn còn trong mã nhưng không còn trong notebook; muốn chạy thì gọi `run_compare.py --methods ...` trực tiếp (xem README).
+**Ô `ABLATION`** (mặc định tắt, tốn thêm ~40% thời gian): chạy thêm 5 biến thể của V-SQL+, mỗi biến thể bỏ hoặc thay một thành phần:
+
+| Biến thể | Bỏ / thay gì | Cho biết điều gì |
+|---|---|---|
+| `vsqlplus_all` | Không chọn view: đưa hết view tự động vào prompt, không liên kết giá trị, không schema lai (chỉ còn hướng 1) | Đóng góp của hướng 2 (`vsqlplus` − `vsqlplus_all`) |
+| `vsqlplus_novote` | Bỏ bầu chọn nhiều mẫu, chỉ lấy top-k của truy hồi | Tác dụng của bầu chọn |
+| `vsqlplus_novl` | Bỏ liên kết giá trị với DB | Tác dụng của liên kết giá trị |
+| `vsqlplus_nofb` | Bỏ schema lai | Tác dụng của schema lai |
+| `vsqlplus_det` | Thay giai đoạn 2 (LLM viết lại SQL) bằng mở rộng tất định view → bảng gốc. **Không thuộc đề xuất**, chỉ để đo | Giai đoạn 2 làm mất bao nhiêu câu; gần như không tốn thêm lượt gọi |
+
+**Phân tích luôn có, không tốn thêm lượt gọi LLM** (Bước 10 in ra; nằm ở mục 5 và 7 của `summary.md`):
+- **Tách giai đoạn** cho TA-SQL, V-SQL, V-SQL+: số câu đúng ở giai đoạn 1 (SQL nháp được mở rộng tất định về bảng gốc,
+  tức kết quả nếu giai đoạn 2 không làm sai gì), số câu đúng cuối cùng, số câu giai đoạn 2 sửa đúng / làm hỏng, và loại lỗi
+  chính của các câu bị hỏng. Với TA-SQL, "giai đoạn 1" là SQL nháp của bước TASL; nó chỉ dùng để trích schema, bước 2 viết lại từ đầu.
+- **Điểm mạnh / yếu:** EX theo từng CSDL và theo số bảng trong SQL đáp án (1, 2, 3, từ 4 trở lên).
+- Thư mục kết quả đã chạy bằng bản mã cũ được bổ sung tự động khi chạy lại Bước 9 (chỉ chạy SQL trên SQLite, vài phút).
+
+Các biến thể khác (`vsql` bản đầu, `vsql_paper`, `vsqlplus_fig4`) vẫn còn trong mã nhưng không còn trong notebook; muốn chạy thì gọi
+`run_compare.py --methods ...` trực tiếp (xem README).
 
 #### d) Embedding, số luồng, lưu Drive
 
@@ -126,7 +147,7 @@ vẫn còn trong mã nhưng không còn trong notebook; muốn chạy thì gọi
 
 | Đổi thoải mái | Không được đổi (nếu muốn chạy tiếp cùng thư mục kết quả) |
 |---|---|
-| Tick thêm hoặc bỏ model, phương pháp (chỉ chạy thêm phần mới) | `DATASET`, `SAMPLE` (đổi là sang thư mục khác) |
+| Tick thêm hoặc bỏ model, phương pháp, `ABLATION` (chỉ chạy thêm phần mới) | `DATASET`, `SAMPLE` (đổi là sang thư mục khác) |
 | `LUU_DRIVE` | `EMBED_MODEL` (đổi thì prompt V-SQL+ ở CSDL lớn khác đi, cache không dùng lại được) |
 | `WORKERS` (phải chạy lại Bước 6) | Phiên bản mã trên GitHub, nếu bản mới làm đổi prompt |
 
@@ -218,7 +239,7 @@ Kiểm tra toàn bộ đường ống với model thật trước khi chạy lâ
 
 ### Bước 9. Chạy chính
 
-Mỗi model chạy TA-SQL và các phương pháp đã tick trên 500 câu. Chương trình gom các prompt còn thiếu theo từng
+Mỗi model chạy TA-SQL và các phương pháp đã tick trên 500 câu (thêm 5 biến thể của V-SQL+ nếu bật `ABLATION`). Chương trình gom các prompt còn thiếu theo từng
 vòng rồi gọi LLM:
 
 | Vòng | Nội dung |
@@ -237,12 +258,14 @@ Dòng tiến độ có dạng:
 
 **Ước tính thời gian trên T4** (chưa đo đầy đủ; ~4.500 lượt gọi LLM mỗi model cho cả 3 phương pháp):
 
-| Model | `tasql` + `vsql` + `vsqlplus` |
-|---|---|
-| `qwen3.5:0.8b` | ~1–2 giờ |
-| `qwen3.5:4b` | ~3–6 giờ |
-| `qwen3:8b` | ~6–10 giờ |
-| `qwen3.5:9b` | ~6–10 giờ |
+| Model | `tasql` + `vsql` + `vsqlplus` | Thêm `ABLATION` |
+|---|---|---|
+| `qwen3.5:0.8b` | ~1–2 giờ | +40% |
+| `qwen3.5:4b` | ~3–6 giờ | +40% |
+| `qwen3:8b` | ~6–10 giờ | +40% |
+| `qwen3.5:9b` | ~6–10 giờ | +40% |
+
+Thêm `dinsql`: khoảng +60–80% (3 lượt gọi với prompt dài, có lập luận từng bước). Thêm `dailsql`: khoảng +30–40%.
 
 Nếu model đã có kết quả của một số phương pháp từ trước thì chỉ tốn thời gian cho các phương pháp còn thiếu.
 
@@ -263,7 +286,8 @@ Với mỗi model, ô này in hai bảng:
 2. **So sánh ghép cặp**: V-SQL − TA-SQL, V-SQL+ − TA-SQL, V-SQL+ − V-SQL, với ΔEX, khoảng tin cậy, số câu chỉ một bên đúng,
    p McNemar và p Holm.
 
-Cuối ô là Bảng 3 của paper để đối chiếu.
+Tiếp theo là bảng **tách giai đoạn** và bảng **điểm mạnh / yếu** (theo CSDL, theo số bảng); nếu bật `ABLATION` thì có
+thêm bảng đóng góp của từng thành phần. Cuối ô là Bảng 3 của paper để đối chiếu.
 
 **Cách đọc:**
 - Kiểm tra cột `n` = **500** ở mọi dòng. Nếu nhỏ hơn thì lần chạy chưa xong (chạy lại Bước 9).

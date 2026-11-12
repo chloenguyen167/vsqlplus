@@ -145,10 +145,40 @@ cần thiết để chạy với mô hình chat và để chạy lại ra cùng 
   dùng thứ tự cố định.
 - Mã gốc xóa mọi dấu `"` trong SQL. Ở đây chỉ bỏ dấu `"` đóng chuỗi `SQL = "...`, vì mô hình nhỏ hay dùng `"..."` làm chuỗi.
 
+### 2.2b DIN-SQL (`dinsql`) và DAIL-SQL (`dailsql`) — hai baseline còn lại của Bảng 3
+
+Bảng 3 của paper so V-SQL với **DIN-SQL, DAIL-SQL và TA-SQL**. Mục 5.1 ghi: "To ensure fairness, none of the models utilized
+self-consistency or re-modification mechanisms". Paper không ghi cách cài hai phương pháp này cho BIRD, nên dùng mã chính thức
+của chính tác giả mỗi phương pháp, chỉ bỏ hai cơ chế mà paper loại:
+
+| | DIN-SQL | DAIL-SQL |
+|---|---|---|
+| Mã gốc | [`DIN-SQL_BIRD.py`](https://github.com/MohammadrezaPourreza/Few-shot-NL2SQL-with-prompting/blob/0474801616130413b024fd008b016a190684649e/DIN-SQL_BIRD.py) | [`run_for_bird.sh`](https://github.com/BeachWang/DAIL-SQL/blob/2061f68112222083134a0c9e2877961ff315ff44/run_for_bird.sh) |
+| Các bước | Liên kết schema → phân loại EASY / NON-NESTED / NESTED → sinh SQL theo loại (CoT, nhiều ví dụ) | Schema dạng `CREATE TABLE` (lấy từ `sqlite_master`) + 7 ví dụ câu hỏi–SQL từ tập train BIRD, prompt kết thúc bằng `SELECT ` |
+| Chọn ví dụ | Ví dụ cố định trong prompt | Vòng 1: khoảng cách Euclid giữa embedding câu hỏi đã che tên bảng/cột (`all-mpnet-base-v2`); vòng 2: ưu tiên ví dụ có khung SQL giống khung SQL của câu trả lời vòng 1 (Jaccard ≥ 0,85) |
+| Bỏ theo paper | **Bước tự sửa lỗi** (self-correction) | **Bầu chọn nhiều mẫu** (mã gốc mặc định `n=5`); ở đây 1 mẫu |
+| Lượt gọi LLM / câu | 3 | 2 (vòng 1 chỉ để lấy khung SQL) |
+| Prompt | `vsql/din_prompts.py`, trích tự động nguyên văn từ file gốc | Chép nguyên văn các mẫu `SQLPrompt` + `QuestionSqlExampleStyle` |
+
+Chung với mọi phương pháp: nhiệt độ 0, tối đa 800 token (paper), evidence của BIRD (DIN-SQL đưa vào dòng `Hint:`, DAIL-SQL nối
+vào sau câu hỏi như `bird_pre_process(with_evidence=True)`).
+
+**Điểm khác buộc phải có:**
+- **DIN-SQL:** mã gốc dựng schema bằng LangChain `SQLDatabase.get_table_info` (CREATE TABLE + 3 dòng mẫu). Ở đây dựng lại đúng
+  định dạng đó bằng SQLAlchemy (thư viện mà LangChain dùng bên dưới), không cài LangChain. File mô tả cột đọc theo thứ tự tên
+  file (mã gốc dùng `glob`, thứ tự không cố định). Nếu không đọc được nhãn phân loại, mã gốc báo lỗi; ở đây đi vào nhánh NESTED
+  (nhánh cuối của mã gốc).
+- **DAIL-SQL:** mã gốc che tên schema trong câu hỏi bằng Stanford CoreNLP (server Java) + GloVe; ở đây dùng **spaCy
+  `en_core_web_sm`** để tách từ và lấy lemma, thuật toán khớp n-gram (`compute_schema_linking`, `match_shift`) chép nguyên văn.
+  Thư viện `sql_metadata` phải là bản 2.x (bản 3.x đổi API, làm hỏng hàm tạo khung SQL). Tập train lấy đúng 2 file
+  `train.json`, `train_tables.json` trong `train.zip` chính thức (đọc bằng HTTP Range, kiểm tra md5), không tải cả 8,9 GB.
+- **Cả hai:** mô hình chat hay bọc SQL trong ```` ```sql ````; nếu có khối code thì lấy SQL trong khối đó, rồi hậu xử lý như
+  mã gốc.
+
 ### 2.3 Phạm vi so sánh
 
-Chỉ so sánh **TA-SQL, V-SQL, V-SQL+**, đúng như paper (V-SQL so với TA-SQL). Cấu hình zero-shot `base` không thuộc so sánh;
-mã vẫn giữ (`--methods base`) nhưng notebook không chạy.
+So sánh chính: **TA-SQL, V-SQL, V-SQL+**. Muốn đầy đủ như Bảng 3 thì chạy thêm **DIN-SQL, DAIL-SQL** (tùy chọn trong notebook).
+Trong paper, V-SQL hơn DIN-SQL và DAIL-SQL từ 3 đến 9 điểm ở cả ba model, còn so với TA-SQL thì chỉ ngang.
 
 ### 2.4 Chấm điểm
 

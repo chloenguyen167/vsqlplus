@@ -24,6 +24,7 @@ from collections import Counter
 from pathlib import Path
 
 from . import autoview as A
+from . import baselines as B
 from . import tasql_prompts as TP
 from . import views as V
 from .db import Schema, connect, qi, references, run_sql, tables_in_sql, classify_error
@@ -43,8 +44,10 @@ NOTES = {
     "vsql_paper": "V-SQL sat Hinh 3: view bo cot khoa ngoai da thay bang gia tri, alias = ten bang; prompt Hinh 4 + Hinh 5",
     "vsql_fair": "V-SQL theo paper (view theo JOIN dap an, giu cot khoa ngoai, Hinh 4/5); phan paper khong noi chinh cho ngang TA-SQL",
     "vsqlplus_fig4": "V-SQL+ chi 2 huong (view tu dong + chon view); gd1/gd2 cung template + schema nhu vsql_fair",
+    "dinsql": "DIN-SQL (baseline Bang 3): schema linking -> phan loai -> sinh SQL theo loai; bo self-correction nhu paper",
+    "dailsql": "DAIL-SQL (baseline Bang 3): schema CREATE TABLE + 7 vi du train BIRD chon 2 vong; 1 mau, khong bau chon nhu paper",
 }
-EXTRA = ["vsql_paper", "vsql_fair", "vsqlplus_fig4"]                     # chay khi chon rieng (notebook: tick o tuong ung)
+EXTRA = ["vsql_paper", "vsql_fair", "vsqlplus_fig4", "dinsql", "dailsql"]                     # chay khi chon rieng (notebook: tick o tuong ung)
 MAIN = ["tasql", "vsql", "vsqlplus"]                      # so sanh chinh: TA-SQL (baseline cua paper), V-SQL, V-SQL+
 ABLATIONS = ["vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb", "vsqlplus_det"]
 
@@ -689,12 +692,46 @@ def run_item(method, item, ctx, llm, args):
         final = run_vsql(item, ctx, ask, rec, args, views=ctx.oracle_paper)
     elif method == "vsql_fair":
         final = run_vsql(item, ctx, ask, rec, args, views=ctx.oracle_fair, fair=True)
+    elif method == "dinsql":
+        final = B.run_din(item, ctx, ask, rec, args)
+    elif method == "dailsql":
+        final = B.run_dail(item, ctx, ask, rec, args)
     elif method.startswith("vsqlplus"):
         final = run_plus(item, ctx, ask, rec, args, llm, method[len("vsqlplus_"):] if "_" in method else "")
     else:
         raise ValueError(method)
     rec["final_sql"] = final
     rec["coverage"] = ctx.coverage(rec.get("schema_tables", []), tables_in_sql(item["SQL"], ctx.schema))
+    add_stage_info(rec, item, ctx)
+    return rec
+
+
+def stage_views(method, ctx):
+    """View ma SQL nhap (giai doan 1) cua phuong phap dung; None = khong co view (TA-SQL)."""
+    if method == "tasql":
+        return None
+    if method.startswith("vsqlplus"):
+        return ctx.auto
+    return {"vsql": ctx.oracle, "vsql_paper": ctx.oracle_paper, "vsql_fair": ctx.oracle_fair}[method]
+
+
+def add_stage_info(rec, item, ctx):
+    """Phan tich (khong goi LLM): stage1_sql = SQL nhap giai doan 1 mo rong tat dinh ve bang goc (view -> CTE), de do
+    rieng giai doan 1 va giai doan 2. TA-SQL: SQL nhap cua buoc TASL (chi dung de trich schema, khong phai cau tra loi).
+    gold_tables = so bang trong SQL dap an (de xem diem manh/yeu theo do phuc tap)."""
+    rec["gold_tables"] = len(tables_in_sql(item["SQL"], ctx.schema))
+    if rec["method"] == "dinsql":                   # DIN-SQL: mot lan sinh SQL, khong co ban nhap de tach giai doan
+        rec["stage1_sql"] = None
+        return rec
+    if rec["method"] == "dailsql":                  # DAIL-SQL: "giai doan 1" = SQL vong 1 (truoc khi chon lai vi du theo khung SQL)
+        rec["stage1_sql"] = rec.get("dail_pre_sql") or ""
+        return rec
+    dummy = rec.get("dummy_sql") or ""
+    vs = stage_views(rec["method"], ctx)
+    if vs is None:
+        rec["stage1_sql"] = clean(dummy)
+    else:
+        rec["stage1_sql"] = V.unfold(dummy, vs)[0] if dummy else ""
     return rec
 
 
@@ -702,6 +739,8 @@ def score(rec, gold_rows, gold_seconds, db_path, timeout):
     rows, err, sec = run_sql(db_path, rec["final_sql"], timeout)
     rec["exec_seconds"], rec["gold_seconds"], rec["error"] = sec, gold_seconds, err
     rec["correct"] = bool(err is None and gold_rows is not None and set(rows) == set(gold_rows))
+    if rec.get("stage1_sql") is not None:
+        score_stage1(rec, gold_rows, db_path, timeout)
     if err is not None:
         rec["outcome"] = classify_error(err)
     elif rec["correct"]:
@@ -711,9 +750,18 @@ def score(rec, gold_rows, gold_seconds, db_path, timeout):
     return rec
 
 
+def score_stage1(rec, gold_rows, db_path, timeout):
+    if rec["stage1_sql"] == rec.get("final_sql"):
+        rec["stage1_correct"] = rec["correct"]
+        return rec
+    rows, err, _ = run_sql(db_path, rec["stage1_sql"], timeout) if rec["stage1_sql"] else (None, "no_sql", 0)
+    rec["stage1_correct"] = bool(err is None and gold_rows is not None and set(rows) == set(gold_rows))
+    return rec
+
+
 def load_meaning(path):
     p = Path(path) if path else None
     return json.loads(p.read_text(encoding="utf-8")) if p and p.exists() else None
 
 
-__all__ = ["DbCtx", "run_item", "score", "NOTES", "MAIN", "ABLATIONS", "load_tables_json", "load_meaning"]
+__all__ = ["DbCtx", "run_item", "score", "add_stage_info", "score_stage1", "NOTES", "MAIN", "ABLATIONS", "load_tables_json", "load_meaning"]

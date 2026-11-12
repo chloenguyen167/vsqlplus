@@ -21,7 +21,8 @@ from vsql import report
 from vsql import views as V
 from vsql.db import run_sql, tables_in_sql
 from vsql.llm import OllamaLLM, OpenAICompatLLM
-from vsql.methods import ABLATIONS, EXTRA, MAIN, NOTES, DbCtx, load_meaning, load_tables_json, run_item, score
+from vsql.methods import (ABLATIONS, EXTRA, MAIN, NOTES, DbCtx, add_stage_info, load_meaning, load_tables_json, run_item, score,
+                          score_stage1)
 
 
 def parse_args(argv=None):
@@ -70,6 +71,10 @@ def parse_args(argv=None):
     a.add_argument("--n-samples", type=int, default=4, help="so dummy SQL de bau chon (1 tham lam + N-1 mau)")
     a.add_argument("--sample-temp", type=float, default=0.7)
     a.add_argument("--max-fallback", type=int, default=2)
+    # DAIL-SQL (cau hinh BIRD cua ma chinh thuc: 7 vi du, nguong khung SQL 0.85)
+    a.add_argument("--dail-train", default="", help="train.json cua BIRD (vi du cho DAIL-SQL)")
+    a.add_argument("--dail-train-tables", default="", help="train_tables.json cua BIRD")
+    a.add_argument("--dail-k", type=int, default=7)
     a.add_argument("--timeout", type=float, default=30.0)
     a.add_argument("--views-only", action="store_true", help="chi sinh + kiem tra view (khong goi LLM)")
     a.add_argument("--selection-sweep", action="store_true", help="do do phu bang dap an cua buoc chon view (khong goi LLM sinh SQL)")
@@ -126,7 +131,12 @@ class _Recorder:
 _KINDS = [("# Understand the pandas-like SR", "TA-SQL SR->SQL", 8.0), ("#SR is a piece", "TA-SQL sinh SR", 3.0),
           ("# the key is the table", "TA-SQL TASL", 2.0), ("# target\nAccording to", "giai doan 2 (Hinh 5)", 1.0),
           ("# target\nYou are an experienced database administrator, please answer \"question\" by sql", "V-SQL gd1 / V-SQL+ Hinh 4", 1.0),
-          ("# target\nYou are an experienced database administrator, please answer \"question\" by ONE", "V-SQL+ gd1", 1.0)]
+          ("# target\nYou are an experienced database administrator, please answer \"question\" by ONE", "V-SQL+ gd1", 1.0),
+          ("\nFor the given question, find the schema links", "DIN-SQL schema linking", 4.0),
+          ("\nFor the given question, classify", "DIN-SQL phan loai", 3.0),
+          ("\nUse the schema links", "DIN-SQL sinh SQL (EASY)", 2.0),
+          ("\nUse the the schema links", "DIN-SQL sinh SQL (CoT)", 5.0),
+          ("/* Some SQL examples", "DAIL-SQL", 1.0), ("/* Given the following", "DAIL-SQL", 1.0)]
 
 
 def _kind(prompt):
@@ -284,6 +294,15 @@ def main(argv=None, llm=None):
             jobs += [(m, it) for it in data if it["uid"] not in done]
         prefetch(llm, jobs, ctxs, args, out)
     gold = {}
+
+    def gold_of(it, c):
+        if it["uid"] not in gold:
+            rows, err, sec = run_sql(c.path, it["SQL"], args.timeout * 10)
+            if err:
+                print(f"[CANH BAO] SQL dap an loi o uid={it['uid']}: {err}")
+            gold[it["uid"]] = (rows, sec)
+        return gold[it["uid"]]
+
     for m in methods:
         done = done_uids(m)
         ok = n = 0
@@ -292,17 +311,13 @@ def main(argv=None, llm=None):
                 if it["uid"] in done:
                     continue
                 c = ctxs[it["db_id"]]
-                if it["uid"] not in gold:
-                    rows, err, sec = run_sql(c.path, it["SQL"], args.timeout * 10)
-                    if err:
-                        print(f"[CANH BAO] SQL dap an loi o uid={it['uid']}: {err}")
-                    gold[it["uid"]] = (rows, sec)
-                rec = score(run_item(m, it, c, llm, args), *gold[it["uid"]], c.path, args.timeout)
+                rec = score(run_item(m, it, c, llm, args), *gold_of(it, c), c.path, args.timeout)
                 f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
                 f.flush()
                 n, ok = n + 1, ok + rec["correct"]
                 if n % 50 == 0:
                     print(f"[{m}] {n}/{len(data) - len(done)}  EX tam thoi = {100 * ok / n:.1f}", flush=True)
+    backfill_stages(out, methods, data, ctxs, gold_of, args)
     full = not (args.limit or args.sample or args.db)
     for m in methods:
         got = {json.loads(l)["uid"] for l in (out / f"predictions_{m}.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()}
@@ -317,8 +332,26 @@ def main(argv=None, llm=None):
         if n_err:
             print(f"[LOI LLM] {m}: {n_err} cau co it nhat mot loi goi LLM (tinh la sai). Xem /content/ollama.log; "
                   f"chay lai voi --retry-llm-errors de thu lai.")
-    print(report.build(out, refs=[r for r in ("tasql", "vsql", "vsql_paper", "vsql_fair") if r in methods]))
+    print(report.build(out, refs=[r for r in ("tasql", "vsql", "vsql_paper", "vsql_fair", "dinsql", "dailsql") if r in methods]))
     print(f"\nDa ghi: {out / 'summary.md'}, {out / 'summary.csv'}")
+
+
+def backfill_stages(out, methods, data, ctxs, gold_of, args):
+    """Ket qua cham tu ban ma cu chua co phan tich tung giai doan -> bo sung tu SQL nhap da luu (chi chay SQL, khong goi LLM)."""
+    items = {it["uid"]: it for it in data}
+    for m in methods:
+        p = out / f"predictions_{m}.jsonl"
+        recs = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+        todo = [r for r in recs if "stage1_correct" not in r and r.get("stage1_sql", "") is not None
+                and r["uid"] in items and r["db_id"] in ctxs]
+        if not todo:
+            continue
+        print(f"[giai doan] {m}: bo sung phan tich tung giai doan cho {len(todo)} cau (chi chay SQL)", flush=True)
+        for r in todo:
+            it, c = items[r["uid"]], ctxs[r["db_id"]]
+            add_stage_info(r, it, c)
+            score_stage1(r, gold_of(it, c)[0], c.path, args.timeout)
+        p.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in recs), encoding="utf-8")
 
 
 def selection_sweep(data, ctxs, llm, args, out):

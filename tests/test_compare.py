@@ -213,6 +213,72 @@ assert (out / "views" / "superhero.oracle_fair.sql").exists()
 assert sum(json.loads(l)["correct"] for l in (out / "predictions_vsql_fair.jsonl").read_text().splitlines()) == 7   # cau ao giac Table 1 o gd2
 summary = (out / "summary.md").read_text()
 assert "So cau hoi chung cho moi cau hinh: **8**" in summary
+assert "## 5. Tach giai doan" in summary and "### Theo so bang trong SQL dap an" in summary
+
+# DIN-SQL (bo self-correction) va DAIL-SQL (1 mau, khong bau chon), voi LLM gia lap
+from vsql import baselines as B  # noqa: E402
+from vsql import din_prompts as DP  # noqa: E402
+assert DP.HUMAN_EASY_CLASS_TEMPLATE.rstrip().endswith("SQL:") and not hasattr(DP, "SYSTEM_SELF_CORRECTION_PROMPT")
+assert B._din_links('...\nSchema_links: [superhero.id, publisher.publisher_name]') == ["superhero.id", "publisher.publisher_name"]
+assert B._din_label('So ... "NON-NESTED".\nLabel: "NON-NESTED"') == ("NON-NESTED", [])
+assert B.dail_post("```sql\nSELECT a FROM t;\n```") == "SELECT a FROM t" and B.dail_post("COUNT(*) FROM t /* x */") == "SELECT COUNT(*) FROM t "
+assert B.jaccard_similarity("select _ from _", "select _ from _") == 1.0
+din_seen = Counter()
+_base = ScriptLLM.chat
+
+
+def _din_dail(self, prompt, meta=None, **o):
+    st, k = meta["stage"], meta["qid"] % len(ITEMS)
+    gold = ITEMS[k]["gold"]
+    if st.startswith("din_") or st.startswith("dail_"):
+        din_seen[st] += 1
+        if st == "din_link":
+            assert o.get("system") == DP.SYSTEM_SCHEMA_LINKING_TEMPLATE and "3 rows from superhero table:" in prompt
+            t = "A: ...\nSchema_links: [superhero.superhero_name, superhero.id]"
+        elif st == "din_class":
+            assert "Schema links: ['superhero.superhero_name', 'superhero.id']" in prompt
+            t = 'Label: "EASY"' if k % 2 == 0 else 'Label: "NON-NESTED"'
+        elif st in ("din_easy", "din_nonnested"):
+            t = f"Let's think.\nSQL: {gold}"
+        elif st.startswith("dail_"):
+            assert prompt.startswith("/* Some SQL examples are provided based on similar problems: */\n/* Answer the following: ")
+            assert prompt.endswith(" */\nSELECT ") and "CREATE TABLE" in prompt
+            t = gold[len("SELECT "):]                        # viet tiep sau "SELECT " nhu ma goc
+        else:
+            raise AssertionError(st)
+        return {"text": t, "prompt_tokens": len(prompt) // 4, "completion_tokens": 5, "seconds": 0.0}
+    return _base(self, prompt, meta, **o)
+
+
+ScriptLLM.chat = _din_dail
+llm = ScriptLLM()
+try:
+    import sql_metadata  # noqa: F401
+    have_sm = True
+except ImportError:
+    have_sm = False
+meths = "dinsql" + (",dailsql" if have_sm else "")
+train = [dict(db_id="hero_train", question=f"How many heroes have {c} eyes?", evidence=f"{c} refers to colour = '{c}'",
+              SQL=f"SELECT COUNT(T1.id) FROM superhero AS T1 INNER JOIN colour AS T2 ON T1.eye_colour_id = T2.id WHERE T2.colour = '{c}'")
+         for c in ["Blue", "Green", "Red", "Black", "Brown", "Amber", "Gold", "Grey"]]
+(tmp / "train.json").write_text(json.dumps(train))
+(tmp / "train_tables.json").write_text(json.dumps([dict(tj[0], db_id="hero_train", table_names=tn,
+                                                        column_names=[[t, c.replace("_", " ")] for t, c in cn])]))
+(tmp / "dev_tables.json").write_text(json.dumps([dict(tj[0], table_names=tn, column_names=[[t, c.replace("_", " ")] for t, c in cn])]))
+B.DailIndex._st_encoder = lambda self: (lambda xs: [[float(len(x)), float(x.count("<mask>"))] for x in xs])
+run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", meths,
+                  "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
+                  "--dail-train", str(tmp / "train.json"), "--dail-train-tables", str(tmp / "train_tables.json")], llm=llm)
+gd = [json.loads(l) for l in (out / "predictions_dinsql.jsonl").read_text().splitlines()]
+assert len(gd) == 8 and all(r["calls"] == 3 for r in gd) and sum(r["correct"] for r in gd) == 8, [r["outcome"] for r in gd]
+assert "din_nested" not in din_seen and din_seen["din_easy"] and din_seen["din_nonnested"], din_seen
+if have_sm:
+    ga = [json.loads(l) for l in (out / "predictions_dailsql.jsonl").read_text().splitlines()]
+    assert len(ga) == 8 and all(r["calls"] in (1, 2) and r["stage1_correct"] for r in ga) and sum(r["correct"] for r in ga) == 8
+    assert len(ga[0]["dail_examples"]) == 7
+else:
+    print("[bo qua] DAIL-SQL: chua cai sql_metadata<3")
+assert "dinsql" in (out / "summary.md").read_text()
 print("\nTAT CA KIEM THU (so sanh) DAT.", ex)
 
 # 8. Ollama tra loi 500 lap lai o mot prompt: ghi nhan cau tra loi rong, khong dung ca lan chay; loi khac van chay tiep

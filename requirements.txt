@@ -1,1 +1,6 @@
-# Khong can thu vien ngoai: chi dung Python >= 3.8 (thu vien chuan) va Ollama chay cuc bo.
+# TA-SQL, V-SQL, V-SQL+: chi can Python >= 3.8 (thu vien chuan) va Ollama chay cuc bo.
+# DIN-SQL: sqlalchemy, pandas (co san tren Colab).
+# DAIL-SQL: them cac goi duoi day (notebook tu cai khi tick dailsql); spaCy can model: python -m spacy download en_core_web_sm
+sql_metadata<3
+sentence-transformers
+spacy

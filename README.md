@@ -29,8 +29,9 @@ Hướng dẫn chi tiết từng bước, giải thích mọi lựa chọn ở B
 
 ## Các phương pháp
 
-**Notebook Colab chỉ chạy 3 phương pháp:** `tasql` (luôn chạy), `vsql_fair` (hiển thị là **V-SQL**) và `vsqlplus` (**V-SQL+**).
-Các phương pháp còn lại trong bảng chỉ chạy được bằng dòng lệnh (`run_compare.py --methods ...`).
+**Notebook Colab chạy:** `tasql` (luôn chạy), `vsql_fair` (hiển thị là **V-SQL**), `vsqlplus` (**V-SQL+**), tùy chọn `dinsql`, `dailsql`.
+Tick `dinsql`, `dailsql` để chạy thêm hai baseline còn lại của Bảng 3. Bật ô `ABLATION` để chạy thêm 5 biến thể của V-SQL+. `vsql`, `vsql_paper`, `vsqlplus_fig4` chỉ chạy được bằng dòng lệnh (`run_compare.py --methods ...`).
+`summary.md` luôn có thêm bảng tách giai đoạn 1 / 2 và bảng EX theo CSDL, theo số bảng trong SQL đáp án (không tốn thêm lượt gọi LLM).
 
 | Phương pháp | Mô tả | Lượt gọi LLM/câu |
 |---|---|---|
@@ -40,6 +41,8 @@ Các phương pháp còn lại trong bảng chỉ chạy được bằng dòng l
 | `vsql_fair` | **V-SQL dùng trong notebook.** Giữ phần paper quy định, chỉnh phần paper không nói cho ngang TA-SQL: view theo JOIN đáp án, giữ cột khóa ngoại; đưa hết view của CSDL (không thêm bước chọn view); hiện cả các bảng không bị view nào thay thế; schema có mô tả giá trị và giá trị mẫu | ~2 |
 | `vsqlplus` | **V-SQL+ đầy đủ**: 2 hướng cải tiến + prompt giai đoạn 1 mới | ~4–4,5 |
 | `vsqlplus_fig4` | **V-SQL+ chỉ 2 hướng**: template và cách trình bày schema y như `vsql_fair`, chỉ khác ở cách sinh view và cách chọn view | ~4 |
+| `dinsql` | **DIN-SQL** (baseline Bảng 3), mã chính thức cho BIRD, prompt nguyên văn; bỏ bước tự sửa lỗi như paper | 3 |
+| `dailsql` | **DAIL-SQL** (baseline Bảng 3), cấu hình BIRD của mã chính thức (7 ví dụ từ tập train BIRD, chọn 2 vòng); 1 mẫu, không bầu chọn như paper | 2 |
 
 **Hai hướng cải tiến của V-SQL+** (paper để ngỏ cả hai):
 1. **Tự động sinh view** từ khóa ngoại: chỉ nối N-1 khi khóa được tham chiếu là duy nhất, kiểm tra lại số dòng, suy thêm khóa
@@ -50,7 +53,7 @@ Các phương pháp còn lại trong bảng chỉ chạy được bằng dòng l
 
 Giai đoạn 2 (LLM khôi phục SQL theo Hình 5) giữ nguyên như paper ở mọi bản V-SQL / V-SQL+.
 
-**Biến thể đối chiếu** (chỉ chạy bằng dòng lệnh): `vsqlplus_all` (chỉ hướng 1), `vsqlplus_novote`, `vsqlplus_novl`,
+**Biến thể đối chiếu** (ô `ABLATION` trong notebook): `vsqlplus_all` (chỉ hướng 1), `vsqlplus_novote`, `vsqlplus_novl`,
 `vsqlplus_nofb` (bỏ từng thành phần của hướng 2), `vsqlplus_det` (thay giai đoạn 2 bằng giải mã tất định; không thuộc đề xuất,
 chỉ để đo).
 
@@ -156,6 +159,8 @@ python tests/test_compare.py   # TA-SQL / V-SQL / V-SQL+ với LLM giả lập, 
 run_compare.py          chạy so sánh TA-SQL / V-SQL / V-SQL+ (notebook gọi file này)
 vsql/methods.py         các phương pháp: tasql, vsql, vsql_paper, vsql_fair, vsqlplus (+ biến thể), chấm điểm
 vsql/tasql_prompts.py   prompt TA-SQL, chép nguyên văn từ mã chính thức
+vsql/baselines.py       DIN-SQL, DAIL-SQL (baseline Bảng 3 của paper)
+vsql/din_prompts.py     prompt DIN-SQL cho BIRD, trích nguyên văn từ mã chính thức
 vsql/autoview.py        dựng view: theo JOIN đáp án (V-SQL, có kiểu Hình 3) và tự động từ khóa ngoại (V-SQL+)
 vsql/views.py           kiểm tra số dòng view, giải mã view -> bảng gốc (CTE)
 vsql/linking.py         liên kết giá trị, BM25 + embedding, hợp nhất RRF (V-SQL+)

@@ -1,5 +1,6 @@
 """Tong hop metric tu predictions_*.jsonl: EX + CI bootstrap, McNemar ghep cap, phan loai loi, chi phi."""
 import csv
+from collections import Counter
 import json
 import math
 import random
@@ -89,11 +90,12 @@ def build(out_dir, ref="vsql", refs=None):
 
     # ---- 2. so sanh ghep cap voi tung phuong phap tham chieu, p hieu chinh Holm trong moi bang
     titles = {"vsql": "V-SQL theo paper", "tasql": "TA-SQL, baseline cua paper",
-              "vsql_paper": "V-SQL sat Hinh 3", "vsql_fair": "V-SQL theo paper, view giu khoa ngoai (notebook goi la V-SQL)"}
+              "vsql_paper": "V-SQL sat Hinh 3", "vsql_fair": "V-SQL theo paper, view giu khoa ngoai (notebook goi la V-SQL)",
+              "dinsql": "DIN-SQL, baseline Bang 3", "dailsql": "DAIL-SQL, baseline Bang 3"}
     refs = [x for x in (refs or ("tasql", ref)) if x in res]
     for k, rf in enumerate(refs):
         title = titles.get(rf, rf)
-        md += [f"\n## 2{'abcdef'[k]}. So sanh ghep cap voi `{rf}` ({title})\n",
+        md += [f"\n## 2{'abcdefgh'[k]}. So sanh ghep cap voi `{rf}` ({title})\n",
                "| Cau hinh | dEX (diem %) | CI 95% cua dEX | Chi ref dung | Chi cau hinh nay dung | p McNemar | p Holm |",
                "|---|---|---|---|---|---|---|"]
         rows = []
@@ -144,10 +146,36 @@ def build(out_dir, ref="vsql", refs=None):
               "(< 100% o V-SQL+ la do buoc chon view bo sot bang).\n- *VES xap xi*: sqrt(t_dap_an / t_du_doan) "
               "tren cau dung, do 1 lan chay nen chi mang tinh tham khao.")
 
-    # ---- 5. doc ablation
+    # ---- 5. tach giai doan
+    st = [m for m, r in res.items() if all("stage1_correct" in r[q] for q in qids)]
+    if st:
+        md += ["\n## 5. Tach giai doan 1 / giai doan 2 (tren cung cac cau)\n",
+               "Giai doan 1 = SQL nhap mo rong tat dinh ve bang goc (view -> CTE), tuc la ket qua neu giai doan 2 khong lam sai gi. "
+               "TA-SQL: SQL nhap cua buoc TASL (chi dung de trich schema; buoc 2 viet lai tu dau). "
+               "DAIL-SQL: SQL vong 1 (vi du chon theo cau hoi) so voi vong 2 (vi du chon them theo khung SQL vong 1). DIN-SQL khong tach.\n",
+               "| Cau hinh | Gd1 dung | Cuoi dung | Gd2 sua dung | Gd2 lam hong | Rong | Loi chinh cua cau bi lam hong |",
+               "|---|---|---|---|---|---|---|"]
+        for m in st:
+            r = res[m]
+            s1 = sum(r[q]["stage1_correct"] for q in qids)
+            fin = sum(r[q]["correct"] for q in qids)
+            fixed = sum(r[q]["correct"] and not r[q]["stage1_correct"] for q in qids)
+            broke = [q for q in qids if r[q]["stage1_correct"] and not r[q]["correct"]]
+            why = Counter(r[q]["outcome"] for q in broke).most_common(3)
+            md.append(f"| `{m}` | {s1} ({_pct(s1 / len(qids))}%) | {fin} ({_pct(fin / len(qids))}%) | {fixed} | {len(broke)} | "
+                      f"{fixed - len(broke):+d} | " + ", ".join(f"{o} {n}" for o, n in why) + " |")
+            next(x for x in rows_csv if x["method"] == m).update(
+                ex_stage1=100 * s1 / len(qids), s2_fixed=fixed, s2_broke=len(broke))
+
+    # ---- 6. doc ablation
     def ex(m):
         return 100 * sum(int(res[m][q]["correct"]) for q in qids) / len(qids) if m in res else None
-    pairs = [("V-SQL (paper) so voi TA-SQL", "vsql", "tasql"),
+    pairs = [("V-SQL (vsql_fair, notebook) so voi TA-SQL", "vsql_fair", "tasql"),
+             ("V-SQL so voi DIN-SQL", "vsql_fair", "dinsql"), ("V-SQL so voi DAIL-SQL", "vsql_fair", "dailsql"),
+             ("V-SQL+ so voi DIN-SQL", "vsqlplus", "dinsql"), ("V-SQL+ so voi DAIL-SQL", "vsqlplus", "dailsql"),
+             ("V-SQL+ so voi V-SQL (vsql_fair)", "vsqlplus", "vsql_fair"),
+             ("Huong 1 + prompt moi, dua het view (so voi vsql_fair)", "vsqlplus_all", "vsql_fair"),
+             ("V-SQL (paper) so voi TA-SQL", "vsql", "tasql"),
              ("V-SQL+ so voi V-SQL (paper)", "vsqlplus", "vsql"),
              ("V-SQL+ so voi TA-SQL", "vsqlplus", "tasql"),
              ("Huong 1 rieng: view tu dong so voi view theo dap an", "vsqlplus_all", "vsql"),
@@ -163,15 +191,33 @@ def build(out_dir, ref="vsql", refs=None):
              ("2 huong cai tien, cung template + schema (so voi vsql_fair)", "vsqlplus_fig4", "vsql_fair"),
              ("2 huong cai tien, cung prompt Hinh 4 (so voi TA-SQL)", "vsqlplus_fig4", "tasql"),
              ("Tac dung rieng cua prompt gd1 moi (V-SQL+ hien tai so voi ban Hinh 4)", "vsqlplus", "vsqlplus_fig4")]
-    md += ["\n## 5. Dong gop rieng cua tung cai tien\n", "| Yeu to | So sanh | dEX |", "|---|---|---|"]
+    md += ["\n## 6. Dong gop rieng cua tung cai tien\n", "| Yeu to | So sanh | dEX |", "|---|---|---|"]
     for name, a, b in pairs:
         if ex(a) is not None and ex(b) is not None:
             md.append(f"| {name} | `{a}` - `{b}` | {ex(a) - ex(b):+.1f} |")
 
+    # ---- 7. diem manh / yeu: EX theo CSDL va theo so bang trong SQL dap an
+    def grid(title, key, vals):
+        out = [f"\n### {title}\n", "| Cau hinh | " + " | ".join(f"{v} (n={sum(1 for q in qids if key(q) == v)})" for v in vals)
+               + " |", "|---|" + "---|" * len(vals)]
+        for m, r in res.items():
+            cells = []
+            for v in vals:
+                qs = [q for q in qids if key(q) == v]
+                cells.append(_pct(sum(r[q]["correct"] for q in qs) / len(qs)) if qs else "-")
+            out.append(f"| `{m}` | " + " | ".join(cells) + " |")
+        return out
+    first = next(iter(res.values()))
+    md.append("\n## 7. Diem manh / diem yeu (EX %)")
+    md += grid("Theo CSDL", lambda q: first[q]["db_id"], sorted({first[q]["db_id"] for q in qids}))
+    if all("gold_tables" in first[q] for q in qids):
+        md += grid("Theo so bang trong SQL dap an", lambda q: min(first[q]["gold_tables"], 4), [1, 2, 3, 4])
+        md.append("(4 = tu 4 bang tro len)")
+
     vs = out_dir / "views_stats.json"
     if vs.exists():
         st = json.loads(vs.read_text())
-        md += ["\n## 6. Thong ke view\n",
+        md += ["\n## 8. Thong ke view\n",
                "| DB | Bang | FK (trong do suy them) | View theo JOIN dap an (V-SQL) / giu so dong | View tu dong (V-SQL+) / giu so dong |",
                "|---|---|---|---|---|"]
         for db, s in st.items():
