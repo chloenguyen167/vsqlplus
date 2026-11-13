@@ -94,7 +94,6 @@ Tên sai thì Bước 6 báo lỗi ở `ollama pull`. Model lớn hơn khoảng 
 | Tham số | Ý nghĩa | Gợi ý |
 |---|---|---|
 | `SAMPLE` | `0` = đủ 500 câu như paper. Số khác (vd `50`) = lấy mẫu phân tầng: giữ tỉ lệ câu theo từng CSDL × độ khó, cố định theo seed nên lần nào cũng ra cùng tập câu | `0` khi chạy thật; `50` để thử nhanh một model mới. Kết quả mẫu ghi vào thư mục có thêm `_mau<N>`, không lẫn với kết quả đủ 500 câu. Số câu thực tế có thể lệch vài câu do làm tròn (vd 100 → 98) |
-| `DATASET` | Phiên bản câu hỏi BIRD mini-dev. `2025-07-04`: bản sửa trên Hugging Face, 500 câu khác nhau. `2024-06`: zip OSS gốc, có 2 câu lặp (`question_id` 137, 138), thiếu câu 119, 120. CSDL giống nhau ở cả hai bản. Bảng so sánh nằm ngay trên ô Bước 1 | Giữ `2025-07-04`. Bản 2025 ghi vào thư mục có thêm `_d2025`, bản 2024 thì không |
 
 #### c) Phương pháp chạy
 
@@ -103,7 +102,7 @@ TA-SQL **luôn chạy** vì là baseline chính mà paper V-SQL so sánh. Các �
 | Ô tick | Là gì | Lượt gọi LLM/câu (ước tính) |
 |---|---|---|
 | (luôn chạy) `tasql` | TA-SQL theo mã chính thức: dummy SQL → trích bảng/cột → biểu diễn SR kiểu pandas → SQL. Prompt chép nguyên văn | 3 |
-| `vsql` ✔ | **V-SQL tái hiện theo paper.** Trong mã và trong thư mục kết quả có tên `vsql_fair` (file `predictions_vsql_fair.jsonl`); notebook hiển thị là "V-SQL". View dựng theo các phép JOIN của SQL đáp án (mục 6 của paper), kiểu Hình 3 (alias là tên bảng) nhưng **giữ cột khóa ngoại**. Đưa hết view của CSDL vào prompt, không thêm bước chọn view (paper không mô tả cách chọn). Giai đoạn 1 dùng prompt Hình 4, giai đoạn 2 dùng prompt Hình 5 (nguyên văn); bảng đưa vào giai đoạn 2 lấy theo định nghĩa của view mà SQL nháp dùng (mục 4.5). Hai điểm paper không nói được chỉnh cho ngang TA-SQL: (1) các bảng không bị view nào thay thế vẫn hiện trong schema; (2) schema có mô tả giá trị và giá trị mẫu | ~2 |
+| `vsql` ✔ | **V-SQL tái hiện theo paper** (bản duy nhất, sát paper nhất có thể): view dựng theo các phép JOIN của SQL đáp án như mục 6, viết đúng kiểu Hình 3 (cột id trỏ tới bảng tra cứu được thay tại chỗ bằng giá trị: `gender_id` → `gender`; `v_superhero` trùng Hình 3); D′ = mọi view của CSDL, bảng đã gộp vào view không hiện riêng (mục 4.1), **không có bước truy hồi / chọn view**; giai đoạn 1 prompt Hình 4, giai đoạn 2 **luôn chạy** prompt Hình 5 (đúng từng chữ; có `{db_type}` = SQLite và khối định dạng), lấy bảng theo định nghĩa view như mục 4.5; nhiệt độ 0, 800 token. Phần paper không nói: schema Bảng 6 thêm mô tả giá trị + giá trị mẫu như TA-SQL. File `predictions_vsql.jsonl`; chi tiết: mục 2.1 của `docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md` | 2 |
 | `vsqlplus` ✔ | **V-SQL+**: 2 hướng cải tiến, (1) sinh view tự động từ khóa ngoại và (2) chọn view bằng truy hồi lai (BM25 + embedding, truy hồi mức cột, liên kết giá trị, bầu chọn nhiều mẫu, schema lai, CSDL nhỏ đưa hết view). Giai đoạn 2 vẫn là LLM khôi phục theo Hình 5 | ~4–4,5 |
 | `dinsql` (mặc định tắt) | **DIN-SQL**, baseline trong Bảng 3 của paper. Mã chính thức cho BIRD, prompt nguyên văn: liên kết schema → phân loại EASY / NON-NESTED / NESTED → sinh SQL theo loại. **Bỏ bước tự sửa lỗi** như paper. Prompt dài (5–10 nghìn token) nên chậm nhất | 3 |
 | `dailsql` (mặc định tắt) | **DAIL-SQL**, baseline trong Bảng 3. Cấu hình BIRD của mã chính thức: schema `CREATE TABLE` + 7 ví dụ từ tập train BIRD, chọn theo độ giống câu hỏi (đã che tên schema) và khung SQL. **1 mẫu, không bầu chọn** như paper. Bước 3 cài thêm `sentence-transformers`, spaCy; Bước 4 tải `train.json` + `train_tables.json` của BIRD (~5 MB, không tải cả `train.zip`); lần chạy đầu mất vài phút để chuẩn bị ví dụ (lưu lại trong thư mục kết quả) | 2 |
@@ -113,7 +112,8 @@ V-SQL / V-SQL+ − DIN-SQL, V-SQL / V-SQL+ − DAIL-SQL. Chi tiết DIN-SQL, DAI
 `docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`.
 
 Phương pháp đã chạy xong trong thư mục kết quả thì không chạy lại. Ví dụ model đã có `tasql` và `vsqlplus` thì tick thêm `vsql`
-chỉ chạy phần V-SQL.
+chỉ chạy phần V-SQL. Riêng V-SQL: thư mục cũ có `predictions_vsql.jsonl` của bản V-SQL trước 13/11 thì các bản ghi đó được tách ra
+`old_predictions_vsql_*.jsonl` và V-SQL được chấm lại; `predictions_vsql_fair.jsonl` (tên cũ) bị bỏ qua khi tổng hợp.
 
 **Ô `ABLATION`** (mặc định tắt, tốn thêm ~40% thời gian): chạy thêm 5 biến thể của V-SQL+, mỗi biến thể bỏ hoặc thay một thành phần:
 
@@ -132,8 +132,8 @@ chỉ chạy phần V-SQL.
 - **Điểm mạnh / yếu:** EX theo từng CSDL và theo số bảng trong SQL đáp án (1, 2, 3, từ 4 trở lên).
 - Thư mục kết quả đã chạy bằng bản mã cũ được bổ sung tự động khi chạy lại Bước 9 (chỉ chạy SQL trên SQLite, vài phút).
 
-Các biến thể khác (`vsql` bản đầu, `vsql_paper`, `vsqlplus_fig4`) vẫn còn trong mã nhưng không còn trong notebook; muốn chạy thì gọi
-`run_compare.py --methods ...` trực tiếp (xem README).
+`vsqlplus_fig4` (V-SQL+ chỉ 2 hướng, cùng template và schema với V-SQL) còn trong mã nhưng không có trong notebook; muốn chạy thì
+gọi `run_compare.py --methods ...` trực tiếp (xem README).
 
 #### d) Embedding, số luồng, lưu Drive
 
@@ -147,13 +147,13 @@ Các biến thể khác (`vsql` bản đầu, `vsql_paper`, `vsqlplus_fig4`) v�
 
 | Đổi thoải mái | Không được đổi (nếu muốn chạy tiếp cùng thư mục kết quả) |
 |---|---|
-| Tick thêm hoặc bỏ model, phương pháp, `ABLATION` (chỉ chạy thêm phần mới) | `DATASET`, `SAMPLE` (đổi là sang thư mục khác) |
+| Tick thêm hoặc bỏ model, phương pháp, `ABLATION` (chỉ chạy thêm phần mới) | `SAMPLE` (đổi là sang thư mục khác) |
 | `LUU_DRIVE` | `EMBED_MODEL` (đổi thì prompt V-SQL+ ở CSDL lớn khác đi, cache không dùng lại được) |
 | `WORKERS` (phải chạy lại Bước 6) | Phiên bản mã trên GitHub, nếu bản mới làm đổi prompt |
 
 **Kết quả mong đợi** khi chạy ô (với mặc định):
 ```
-Model: ['qwen3.5:0.8b', 'qwen3.5:4b', 'qwen3.5:9b'] | cấu hình: tasql,vsql,vsqlplus | số câu: 500 | dữ liệu: 2025-07-04
+Model: ['qwen3.5:0.8b', 'qwen3.5:4b', 'qwen3.5:9b'] | cấu hình: tasql,vsql,vsqlplus | số câu: 500 | dữ liệu: BIRD mini-dev 2025-07-04
 LƯU Ý: nhiều model × 500 câu có thể vượt giới hạn ~12 giờ/phiên của Colab. ...
 ```
 
@@ -168,7 +168,7 @@ Clone repo vào `/content/vsqlplus` (nếu đã có thì `git pull`), sau đó c
 
 **Kết quả mong đợi** (2 dòng):
 ```
-TAT CA KIEM THU (so sanh) DAT. {'tasql': 8, 'vsql': 7, 'vsqlplus': 8, ...}
+TAT CA KIEM THU (so sanh) DAT. {'tasql': 7, 'vsql': 6, 'vsqlplus': 7, ...}
 KIEM THU LOI OLLAMA DAT.
 ```
 Nếu có `AssertionError` hoặc `No such file`, thường là mã trên GitHub chưa được cập nhật (xem mục 1.1).
@@ -176,18 +176,18 @@ Nếu có `AssertionError` hoặc `No such file`, thường là mã trên GitHub
 ### Bước 4. Tải BIRD mini-dev và mô tả cột của TA-SQL (~2–5 phút lần đầu)
 
 - Tải `minidev.zip` (~800 MB) từ máy chủ OSS của BIRD, giải nén phần SQLite vào `/content/data/minidev/MINIDEV` (CSDL,
-  `dev_tables.json`, mô tả cột, câu hỏi bản 2024). Lần đầu bản zip được chép vào Drive (`MyDrive/vsqlplus_ketqua/minidev.zip`),
-  các lần sau lấy từ Drive nên nhanh hơn.
-- Nếu `DATASET = "2025-07-04"`: tải file câu hỏi bản 2025 từ Hugging Face (ghim theo commit). Ô kiểm tra md5 để chắc đúng phiên bản.
+  `dev_tables.json`, mô tả cột; file câu hỏi 2024 trong zip không dùng). Lần đầu bản zip được chép vào Drive
+  (`MyDrive/vsqlplus_ketqua/minidev.zip`), các lần sau lấy từ Drive nên nhanh hơn.
+- Tải file câu hỏi bản 2025-07-04 từ Hugging Face (ghim theo commit). Ô kiểm tra md5 để chắc đúng phiên bản.
 - Tải `column_meaning.json` từ repo chính thức của TA-SQL (mô tả cột mà TA-SQL dùng trong prompt).
 
-**Kết quả mong đợi** với bản 2025:
+**Kết quả mong đợi:**
 ```
 Dữ liệu 2025-07-04: 500 dòng; 500 question_id khác nhau; 500 câu hỏi khác nhau; độ khó {'simple': 148, 'moderate': 250, 'challenging': 102} ; 11 CSDL
 column_meaning.json: 699 cột
 ```
-Với bản 2024 thì dòng đầu là `500 dòng; 498 question_id khác nhau; 498 câu hỏi khác nhau`. Nếu thấy `File câu hỏi không khớp
-phiên bản` thì xóa file trong `/content/data/minidev/MINIDEV/` rồi chạy lại ô.
+Nếu thấy `File câu hỏi không khớp bản 2025-07-04` thì xóa `/content/data/minidev/MINIDEV/mini_dev_sqlite_2025-07-04.json` rồi
+chạy lại ô.
 
 ### Bước 5. Sinh view và đo độ phủ bước chọn view (~2 phút, không gọi LLM)
 
@@ -228,14 +228,14 @@ Thư mục kết quả trên Drive:
 
 | Model | Thư mục |
 |---|---|
-| `qwen3.5:0.8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_08b_d2025/` (bản 2024: không có `_d2025`) |
+| `qwen3.5:0.8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_08b_d2025/` |
 | `qwen3.5:4b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_4b_d2025/` |
 | `qwen3:8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen3_8b_d2025/` |
 | `qwen3.5:9b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_9b_d2025/` |
 
 ### Bước 8. Chạy thử 3 câu × các phương pháp đã chọn (~2–5 phút)
 
-Kiểm tra toàn bộ đường ống với model thật trước khi chạy lâu. **Kết quả mong đợi:** một bảng EX có một dòng cho mỗi phương pháp đã chạy (mặc định 3 dòng: `tasql`, `vsql_fair` (tức V-SQL), `vsqlplus`), mỗi dòng `n` = 3. EX của 3 câu không có ý nghĩa thống kê; chỉ cần **không có** `Error`/`Traceback`.
+Kiểm tra toàn bộ đường ống với model thật trước khi chạy lâu. **Kết quả mong đợi:** một bảng EX có một dòng cho mỗi phương pháp đã chạy (mặc định 3 dòng: `tasql`, `vsql`, `vsqlplus`), mỗi dòng `n` = 3. EX của 3 câu không có ý nghĩa thống kê; chỉ cần **không có** `Error`/`Traceback`.
 
 ### Bước 9. Chạy chính
 
@@ -346,7 +346,7 @@ Các trường chính trong `predictions_<cấu hình>.jsonl`:
 
 | Trường | Ý nghĩa |
 |---|---|
-| `uid` | Vị trí câu trong `mini_dev_sqlite.json` (0–499); `qid` là `question_id` gốc |
+| `uid` | Vị trí câu trong `mini_dev_sqlite_2025-07-04.json` (0–499); `qid` là `question_id` gốc |
 | `final_sql`, `correct`, `outcome`, `error` | SQL cuối, đúng/sai, loại kết quả (`correct`, `schema_column`, `syntax`, `wrong_result`, ...), thông báo lỗi |
 | `dummy_sql`, `views_used` | Dummy SQL của giai đoạn 1 và các view nó dùng (V-SQL, V-SQL+); TA-SQL lưu dummy SQL của TASL và `sr` |
 | `calls`, `prompt_tokens`, `completion_tokens`, `llm_seconds` | Chi phí cho câu đó |

@@ -60,7 +60,18 @@ class View:
         return sql
 
     def ddl(self):
-        return f"CREATE VIEW {qi(self.name)} AS {self.select_sql()};"
+        if not self.paper:
+            return f"CREATE VIEW {qi(self.name)} AS {self.select_sql()};"
+        # dung cach viet cua Hinh 3: chu thuong, backtick, moi cot / moi phep noi mot dong, chi ghi `as` khi doi ten cot,
+        # alias bang khong backtick (`left join `colour` eye_colour on ...`)
+        bq = lambda n: "`" + n.replace("`", "") + "`"  # noqa: E731
+        cols = [f"   {bq(c.alias)}.{bq(c.col)}" + ("" if c.name == c.col else f" as {bq(c.name)}") for c in self.cols]
+        joins = []
+        for j in self.joins:
+            on = " and ".join(f"{bq(j.parent)}.{bq(p)} = {bq(j.alias)}.{bq(c)}" for p, c in j.on)
+            joins.append(f"left join {bq(j.table)}" + ("" if j.alias == j.table else f" {j.alias}") + f" on {on}")
+        return (f"create view {self.name} as\nselect\n" + ",\n".join(cols) + f"\nfrom\n   {bq(self.base)}\n"
+                + "\n".join(joins))
 
 def _colname(prefix, col):
     pl, cl = prefix.lower(), col.lower()
@@ -98,6 +109,7 @@ def validate(schema, views, timeout=60):
 
 
 def leftover_tables(schema, views):
+    """Bang khong nam trong view nao (D' cua paper = cac view + nhung bang nay)."""
     used = set().union(*[v.source_tables() for v in views]) if views else set()
     return [t for t in schema.tables if t not in used]
 

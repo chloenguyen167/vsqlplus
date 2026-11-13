@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """So sanh TA-SQL, V-SQL (dung theo paper) va V-SQL+ (cai tien) tren BIRD mini-dev, cung mot LLM chay qua Ollama.
 
-Moi cau hoi duoc dinh danh theo VI TRI trong file du lieu (uid = 0..499), nen luon cham du 500 dong. Hai phien ban cau hoi:
-  2024-06    zip OSS goc: question_id 137, 138 moi ma lap 2 lan (498 cau khac nhau).
-  2025-07-04 ban sua tren Hugging Face (birdsql/bird_mini_dev, commit f65faf4): 500 cau khac nhau. Xem docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md.
+Du lieu: cau hoi BIRD mini-dev ban 2025-07-04 tren Hugging Face (birdsql/bird_mini_dev, commit f65faf4, md5
+595b6b014a528f4386d2e16f74d14b40): 500 cau khac nhau. CSDL, dev_tables.json, mo ta cot lay tu zip OSS. Ban zip OSS 2024-06
+(mini_dev_sqlite.json, question_id 137/138 lap 2 lan) khong con dung. Moi cau dinh danh theo VI TRI trong file (uid = 0..499).
 
 Vi du (tren Colab, xem notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb):
-  python run_compare.py --data minidev/MINIDEV/mini_dev_sqlite.json --db-root minidev/MINIDEV/dev_databases \
+  python run_compare.py --data minidev/MINIDEV/mini_dev_sqlite_2025-07-04.json --db-root minidev/MINIDEV/dev_databases \
       --tables-json minidev/MINIDEV/dev_tables.json --tasql-meaning column_meaning.json \
-      --model qwen3:8b --out results/cmp_qwen3_8b
+      --model qwen3:8b --out results/cmp_qwen3_8b_d2025
 """
 import argparse
 import json
 import threading
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from vsql import report
 from vsql import views as V
 from vsql.db import run_sql, tables_in_sql
 from vsql.llm import OllamaLLM, OpenAICompatLLM
-from vsql.methods import (ABLATIONS, EXTRA, MAIN, NOTES, DbCtx, add_stage_info, load_meaning, load_tables_json, run_item, score,
-                          score_stage1)
+from vsql.methods import (ABLATIONS, EXTRA, IMPL, MAIN, NOTES, DbCtx, add_stage_info, load_meaning, load_tables_json, run_item,
+                          score, score_stage1)
 
 
 def parse_args(argv=None):
@@ -216,7 +216,29 @@ def load_data(args):
     for i, it in enumerate(data):
         it["uid"] = i
         it.setdefault("question_id", i)
+    dup = sorted(q for q, n in Counter(it["question_id"] for it in data).items() if n > 1)
+    if dup:
+        raise SystemExit(f"File cau hoi co question_id lap lai {dup[:5]}: day la ban mini-dev 2024-06 (zip OSS), khong con dung. "
+                         "Dung ban 2025-07-04 tren Hugging Face (mini_dev_sqlite_2025-07-04.json), xem README.")
     return data
+
+
+def split_stale(out, m):
+    """Ban ghi cua cai dat cu (khac IMPL[m], vd predictions_vsql.jsonl cua ban V-SQL truoc 13/11) -> chuyen sang
+    old_predictions_<m>_<k>.jsonl de cham lai bang ma hien tai; khong tron ket qua hai cai dat trong mot bang."""
+    p = out / f"predictions_{m}.jsonl"
+    if not p.exists():
+        return
+    lines = [l for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    keep = [l for l in lines if json.loads(l).get("impl") == IMPL.get(m)]
+    if len(keep) == len(lines):
+        return
+    k = 1
+    while (out / f"old_predictions_{m}_{k}.jsonl").exists():
+        k += 1
+    (out / f"old_predictions_{m}_{k}.jsonl").write_text("".join(l + "\n" for l in lines if l not in keep), encoding="utf-8")
+    p.write_text("".join(l + "\n" for l in keep), encoding="utf-8")
+    print(f"[ban cu] {m}: {len(lines) - len(keep)} ban ghi cua cai dat cu -> old_predictions_{m}_{k}.jsonl; se cham lai", flush=True)
 
 
 def main(argv=None, llm=None):
@@ -227,11 +249,10 @@ def main(argv=None, llm=None):
     n_rows = len(data)
     n_qid = len({it["question_id"] for it in data})
     n_text = len({(it["db_id"], it["question"]) for it in data})
-    print(f"[du lieu] {n_rows} dong; {n_qid} question_id khac nhau; {n_text} cau hoi (db, question) khac nhau. "
-          f"Moi DONG duoc tinh mot lan (dinh danh theo vi tri), nen tong so cau = {n_rows}.", flush=True)
+    print(f"[du lieu] {n_rows} dong; {n_qid} question_id khac nhau; {n_text} cau hoi (db, question) khac nhau.", flush=True)
     by_db = defaultdict(list)
     for it in data:
-        by_db[it["db_id"]].append(it["SQL"])           # view cua V-SQL (paper) nhin JOIN cua toan bo dap an DB
+        by_db[it["db_id"]].append(it["SQL"])           # view cua V-SQL nhin JOIN cua toan bo dap an DB (nhu paper, muc 6)
     if args.db:
         data = [it for it in data if it["db_id"] in args.db.split(",")]
     if args.sample:
@@ -252,10 +273,7 @@ def main(argv=None, llm=None):
     ctxs, stats = {}, {}
     for db in sorted({it["db_id"] for it in data}):
         c = ctxs[db] = DbCtx(db, Path(args.db_root) / db, by_db[db], args, tables_json, meaning)
-        srcs = [("oracle", c.oracle), ("auto", c.auto)] + (
-            [("oracle_paper", c.oracle_paper)] if "vsql_paper" in methods else []) + (
-            [("oracle_fair", c.oracle_fair)] if "vsql_fair" in methods else [])
-        for src, vs in srcs:
+        for src, vs in [("oracle", c.oracle), ("auto", c.auto)]:
             (out / "views" / f"{db}.{src}.sql").write_text(
                 "\n\n".join(f"-- origin={v.origin} row_preserving={v.row_preserving} check={v.verified}\n{v.ddl()}"
                             for v in vs) + "\n", encoding="utf-8")
@@ -282,6 +300,8 @@ def main(argv=None, llm=None):
         print(f"[retry-llm-errors] xoa {llm.forget_errors()} cau tra loi loi khoi cache de thu lai")
 
     (out / "config.json").write_text(json.dumps(vars(args), indent=1))
+    for m in methods:
+        split_stale(out, m)
 
     def done_uids(m):
         p = out / f"predictions_{m}.jsonl"
@@ -332,7 +352,7 @@ def main(argv=None, llm=None):
         if n_err:
             print(f"[LOI LLM] {m}: {n_err} cau co it nhat mot loi goi LLM (tinh la sai). Xem /content/ollama.log; "
                   f"chay lai voi --retry-llm-errors de thu lai.")
-    print(report.build(out, refs=[r for r in ("tasql", "vsql", "vsql_paper", "vsql_fair", "dinsql", "dailsql") if r in methods]))
+    print(report.build(out, refs=[r for r in ("tasql", "vsql", "dinsql", "dailsql") if r in methods]))
     print(f"\nDa ghi: {out / 'summary.md'}, {out / 'summary.csv'}")
 
 

@@ -223,11 +223,19 @@ class OpenAICompatLLM:
         raise NotImplementedError("Dung --retriever bm25 khi chay qua API")
 
 
+# Dau cau SQL: SELECT viet hoa o bat ky dau, select o dau dong, hoac WITH <ten> AS ( (CTE). Ngoai khoi ``` chi nhan select viet
+# thuong o dau dong, de khong khop chu "with"/"Select" trong van xuoi ("To find the league with the most ...", "Select players
+# where ..." truoc day bi lay lam SQL); trong khoi ``` nhan ca "Select" o dau dong.
+_CTE = r"(?i:\bWITH\s+(?:RECURSIVE\s+)?(?:`[^`]+`|\"[^\"]+\"|\w+)\s*(?:\([^()]*\)\s*)?AS\s*\()"
+_START_TEXT = re.compile(r"\bSELECT\b|(?m:^[ \t]*select\b)|" + _CTE)
+_START_BLOCK = re.compile(r"\bSELECT\b|(?im:^[ \t]*select\b)|" + _CTE)
+
+
 def extract_sql(text):
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S)
     m = re.findall(r"```(?:sql|sqlite)?\s*(.*?)```", text, flags=re.S | re.I)
     sql = m[-1] if m else text
-    m = re.search(r"\b(WITH|SELECT)\b", sql, re.I)
+    m = (_START_BLOCK if m else _START_TEXT).search(sql)
     if not m:
         return ""
     return sql[m.start():].strip().rstrip(';').strip()

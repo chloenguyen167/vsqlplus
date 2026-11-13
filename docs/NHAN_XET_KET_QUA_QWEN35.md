@@ -2,6 +2,10 @@
 
 Kết quả lấy từ `results_new/` (chạy trên Colab, GPU T4). Phần `qwen3.5:9b` sẽ bổ sung sau (mục 6).
 
+> **Ghi chú 13/11:** "V-SQL" trong tài liệu này là bản V-SQL đầu tiên (`predictions_vsql.jsonl` của lần chạy này), đã bị gỡ
+> khỏi mã. `vsql` hiện tại là bản `vsql_fair` cũ, có thêm các sửa ngày 13/11. Các tên `vsql_paper`, `vsql_fair` nhắc dưới đây không
+> còn trong mã. Xem mục 2.1 của `docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`.
+
 ---
 
 ## Tóm tắt nhanh

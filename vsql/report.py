@@ -18,13 +18,17 @@ def note(m):
 
 def load(out_dir):
     res = {}
-    from .methods import NOTES
+    from .methods import IMPL, NOTES
     found = sorted(p.stem[len("predictions_"):] for p in Path(out_dir).glob("predictions_*.jsonl"))
-    order = [m for m in NOTES if m in found] + [m for m in found if m not in NOTES]
+    order = [m for m in NOTES if m in found]
+    gone = [m for m in found if m not in NOTES]
+    if gone:            # phuong phap da bo khoi ma (vd vsql_fair, vsql_paper truoc 13/11): khong tong hop
+        print(f"[report] bo qua predictions cua phuong phap khong con trong ma: {', '.join(gone)}")
     for m in order:
         p = Path(out_dir) / f"predictions_{m}.jsonl"
         if p.exists():
             rows = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+            rows = [r for r in rows if r.get("impl") == IMPL.get(m)]     # bo ban ghi cua cai dat cu (vd V-SQL truoc 13/11)
             if rows:
                 # uid = vi tri cau trong file du lieu (du 500 cau); file cu chi co qid (2 cap qid trung -> 498)
                 res[m] = {r.get("uid", r["qid"]): r for r in rows}
@@ -89,8 +93,7 @@ def build(out_dir, ref="vsql", refs=None):
                              **{f"ex_{d}": (100 * sum(v) / len(v) if v else "") for d, v in by.items()}))
 
     # ---- 2. so sanh ghep cap voi tung phuong phap tham chieu, p hieu chinh Holm trong moi bang
-    titles = {"vsql": "V-SQL theo paper", "tasql": "TA-SQL, baseline cua paper",
-              "vsql_paper": "V-SQL sat Hinh 3", "vsql_fair": "V-SQL theo paper, view giu khoa ngoai (notebook goi la V-SQL)",
+    titles = {"vsql": "V-SQL tai hien theo paper", "tasql": "TA-SQL, baseline cua paper",
               "dinsql": "DIN-SQL, baseline Bang 3", "dailsql": "DAIL-SQL, baseline Bang 3"}
     refs = [x for x in (refs or ("tasql", ref)) if x in res]
     for k, rf in enumerate(refs):
@@ -170,25 +173,18 @@ def build(out_dir, ref="vsql", refs=None):
     # ---- 6. doc ablation
     def ex(m):
         return 100 * sum(int(res[m][q]["correct"]) for q in qids) / len(qids) if m in res else None
-    pairs = [("V-SQL (vsql_fair, notebook) so voi TA-SQL", "vsql_fair", "tasql"),
-             ("V-SQL so voi DIN-SQL", "vsql_fair", "dinsql"), ("V-SQL so voi DAIL-SQL", "vsql_fair", "dailsql"),
+    pairs = [("V-SQL so voi TA-SQL", "vsql", "tasql"),
+             ("V-SQL so voi DIN-SQL", "vsql", "dinsql"), ("V-SQL so voi DAIL-SQL", "vsql", "dailsql"),
              ("V-SQL+ so voi DIN-SQL", "vsqlplus", "dinsql"), ("V-SQL+ so voi DAIL-SQL", "vsqlplus", "dailsql"),
-             ("V-SQL+ so voi V-SQL (vsql_fair)", "vsqlplus", "vsql_fair"),
-             ("Huong 1 + prompt moi, dua het view (so voi vsql_fair)", "vsqlplus_all", "vsql_fair"),
-             ("V-SQL (paper) so voi TA-SQL", "vsql", "tasql"),
-             ("V-SQL+ so voi V-SQL (paper)", "vsqlplus", "vsql"),
+             ("V-SQL+ so voi V-SQL", "vsqlplus", "vsql"),
              ("V-SQL+ so voi TA-SQL", "vsqlplus", "tasql"),
-             ("Huong 1 rieng: view tu dong so voi view theo dap an", "vsqlplus_all", "vsql"),
+             ("Huong 1 + prompt moi, dua het view (so voi V-SQL)", "vsqlplus_all", "vsql"),
              ("Huong 2: chon view (so voi dua het view)", "vsqlplus", "vsqlplus_all"),
              ("Huong 2 - bau chon nhieu mau", "vsqlplus", "vsqlplus_novote"),
              ("Huong 2 - lien ket gia tri", "vsqlplus", "vsqlplus_novl"),
              ("Huong 2 - schema lai", "vsqlplus", "vsqlplus_nofb"),
              ("Giai doan 2 LLM (paper) so voi giai ma tat dinh", "vsqlplus", "vsqlplus_det"),
-             ("V-SQL sat Hinh 3 so voi V-SQL hien tai", "vsql_paper", "vsql"),
-             ("V-SQL sat Hinh 3 so voi TA-SQL", "vsql_paper", "tasql"),
-             ("V-SQL chinh phan paper khong noi so voi TA-SQL", "vsql_fair", "tasql"),
-             ("Chinh phan paper khong noi (so voi V-SQL sat Hinh 3)", "vsql_fair", "vsql_paper"),
-             ("2 huong cai tien, cung template + schema (so voi vsql_fair)", "vsqlplus_fig4", "vsql_fair"),
+             ("2 huong cai tien, cung template + schema (so voi V-SQL)", "vsqlplus_fig4", "vsql"),
              ("2 huong cai tien, cung prompt Hinh 4 (so voi TA-SQL)", "vsqlplus_fig4", "tasql"),
              ("Tac dung rieng cua prompt gd1 moi (V-SQL+ hien tai so voi ban Hinh 4)", "vsqlplus", "vsqlplus_fig4")]
     md += ["\n## 6. Dong gop rieng cua tung cai tien\n", "| Yeu to | So sanh | dEX |", "|---|---|---|"]

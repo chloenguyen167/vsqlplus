@@ -1,4 +1,4 @@
-"""Kiem thu TA-SQL / V-SQL (paper) / V-SQL+ voi LLM gia lap (khong can Ollama, khong can BIRD).
+"""Kiem thu TA-SQL / V-SQL / V-SQL+ / DIN-SQL / DAIL-SQL voi LLM gia lap (khong can Ollama, khong can BIRD).
 Chay: python tests/test_compare.py"""
 import json
 import re
@@ -16,7 +16,8 @@ from vsql import autoview as A                                      # noqa: E402
 from vsql import views as V                                         # noqa: E402
 from vsql.db import Schema, run_sql                                 # noqa: E402
 from vsql.linking import ValueIndex, link_values                    # noqa: E402
-from vsql.methods import _fallback_tables, _tasql_sql, compile_error, first_statement  # noqa: E402
+from vsql.llm import extract_sql                                    # noqa: E402
+from vsql.methods import Render6, _fallback_tables, _tasql_sql, compile_error, first_statement  # noqa: E402
 import run_compare                                                  # noqa: E402
 
 tmp = Path(tempfile.mkdtemp())
@@ -61,11 +62,25 @@ for q in qs:
         assert err is None and used, (sql, err)
         assert Counter(got) == Counter(want), (q, prune)
 
-# 3. view cua V-SQL (paper) theo JOIN dap an: khong co view nhan ban dong; bang tra cuu van hien (dem publisher duoc)
+# 3. view cua V-SQL theo JOIN dap an: khong co view nhan ban dong; kieu Hinh 3 (khong "AS alias" khi alias = ten bang,
+#    colour noi 3 lan theo ten vai tro, bo cot id khoa ngoai cua bang cha DA noi vao view); D' = view + bang ngoai moi view
 oracle = V.validate(s, A.oracle_views(s, [it["gold"] for it in ITEMS]))
 assert oracle and all(v.row_preserving and v.verified == "rows_equal" for v in oracle), [(v.name, v.verified) for v in oracle]
-vis = A.visible_tables(s, oracle)
-assert "publisher" in vis and "superhero" not in vis, vis
+assert "publisher" not in V.leftover_tables(s, oracle) and "superhero" not in V.leftover_tables(s, oracle)
+sh = {v.name: v for v in oracle}["v_superhero"]
+nm = {c.name for c in sh.cols}
+assert not nm & {"eye_colour_id", "hair_colour_id", "skin_colour_id", "publisher_id"} and {"id", "eye_colour", "publisher_name"} <= nm, nm
+d3 = sh.ddl()                                # cach viet va thu tu cot nhu Hinh 3: gia tri thay ngay tai vi tri cot khoa ngoai
+assert d3.startswith("create view v_superhero as\nselect\n   `superhero`.`id`,\n   `superhero`.`superhero_name`,"), d3
+assert "left join `publisher` on `superhero`.`publisher_id` = `publisher`.`id`" in d3
+assert "left join `colour` eye_colour on `superhero`.`eye_colour_id` = `eye_colour`.`id`" in d3 and "`eye_colour`.`colour` as `eye_colour`" in d3
+names3 = [c.name for c in sh.cols]
+assert names3.index("full_name") < names3.index("eye_colour") < names3.index("publisher_name") < names3.index("height_cm"), names3
+shutil.copy(db, tmp / "fig3.sqlite")
+c3 = sqlite3.connect(tmp / "fig3.sqlite")
+c3.execute(d3)
+assert c3.execute("select count(*) from v_superhero").fetchone() == c3.execute("select count(*) from superhero").fetchone()
+c3.close()
 
 # 4. lien ket gia tri
 vi = ValueIndex(s)
@@ -85,11 +100,26 @@ assert first_statement("SELECT 1; SELECT 2") == "SELECT 1"
 assert first_statement("SELECT ';' AS x;") == "SELECT ';' AS x"
 assert _tasql_sql('COUNT(*) FROM superhero"\n\nThis query counts') == "SELECT COUNT(*) FROM superhero"
 assert _tasql_sql("```sql\nSELECT COUNT(*) FROM superhero;\n```") == "SELECT COUNT(*) FROM superhero"
+assert extract_sql("To answer with SQL we use:\nSELECT a FROM t") == "SELECT a FROM t"       # khong lay chu "with" van xuoi
+assert extract_sql("To find the league with the most draws, Select all matches ...") == ""   # van xuoi, khong co SQL
+assert extract_sql("```sql\nwith x as (select 1) select * from x;\n```") == "with x as (select 1) select * from x"
+assert extract_sql("Answer:\n  select a\nfrom t") == "select a\nfrom t"
+# Bang 6 mo rong (V-SQL): ten cot can quote ghi kem backtick nhu TA-SQL
+_C = type("C", (), {"desc": type("D", (), {"get": lambda self, t, c: {}})(), "schema": type("S", (), {"samples": {}})(),
+                    "lazy": lambda self, k, fn: None})
+rows6 = Render6(_C(), extended=True)._rows([("FRPM Count (K-12)", "frpm", "FRPM Count (K-12)", "REAL"), ("id", "t", "id", "")])
+assert rows6[0][0] == "`FRPM Count (K-12)`" and rows6[1][0] == "id", rows6
 
 # 7. toan bo duong ong voi LLM gia lap (so lieu chi de kiem tra ma, khong co y nghia khoa hoc)
 items = json.loads(Path(data).read_text())
-items.append(dict(items[0]))                     # ban ghi trung lap (nhu question_id 137/138 cua mini-dev)
+Path(data).write_text(json.dumps(items + [dict(items[0])]))     # question_id lap (dau hieu ban mini-dev 2024-06) -> tu choi
+try:
+    run_compare.load_data(run_compare.parse_args(["--data", str(data), "--db-root", "x"]))
+    raise AssertionError("phai tu choi file cau hoi co question_id lap")
+except SystemExit as e:
+    assert "2024-06" in str(e), e
 Path(data).write_text(json.dumps(items))
+N = len(items)
 cn = [[-1, "*"]]
 tn = list(s.tables)
 for i, t in enumerate(tn):
@@ -136,7 +166,7 @@ class ScriptLLM:
             sql = gold[len("SELECT "):] + '"'                 # viet tiep sau SQL = "SELECT, nhu GPT-4 trong ma goc
             return {"text": sql, "prompt_tokens": 1, "completion_tokens": 1, "seconds": 0.0}
         elif st == "vsql_s1":
-            sql = PLUS[k].replace("FROM publisher", "FROM v_superhero")       # view-only: dem publisher qua view
+            sql = PLUS[k]
         elif st == "vsql_s2":
             sql = ITEMS[k].get("s2", gold)
         elif st == "plus_s2":                                # khoi phuc hoan hao = mo rong tat dinh dummy SQL
@@ -163,11 +193,12 @@ run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(o
 got = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().splitlines()]
        for m in ["tasql", "vsql", "vsqlplus", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb",
                  "vsqlplus_det"]}
-assert all(len(r) == len(items) == 8 for r in got.values()), {m: len(r) for m, r in got.items()}   # du ca ban ghi trung
+assert all(len(r) == N for r in got.values()), {m: len(r) for m, r in got.items()}
+assert all(r["impl"] == 4 for r in got["vsql"]) and "impl" not in got["tasql"][0] and got["vsqlplus"][0]["impl"] == 2
 ex = {m: sum(r["correct"] for r in rs) for m, rs in got.items()}
-assert ex["tasql"] == 8, ex
-assert ex["vsql"] == 7, ex                       # sai: ao giac kieu Table 1 cua paper o giai doan 2
-assert ex["vsqlplus"] == 8 and ex["vsqlplus_det"] == 8 and ex["vsqlplus_nofb"] == 7 and ex["vsqlplus_all"] == 7, ex
+assert ex["tasql"] == N, ex
+assert ex["vsql"] == N - 1, ex                   # sai: ao giac kieu Table 1 cua paper o giai doan 2
+assert ex["vsqlplus"] == N and ex["vsqlplus_det"] == N and ex["vsqlplus_nofb"] == N - 1 and ex["vsqlplus_all"] == N - 1, ex
 r3 = got["vsqlplus"][3]
 assert r3["fallback"] and r3["fallback"][0]["added"] == ["attribute"], r3["fallback"]
 assert got["vsqlplus"][0]["vote"]["chosen"], got["vsqlplus"][0]
@@ -181,38 +212,49 @@ with contextlib.redirect_stdout(buf):                  # chay lai: da cham het, 
     run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "tasql,vsql",
                       "--tables-json", str(tmp / "dev_tables.json"), "--no-embed"], llm=llm)
 o = buf.getvalue()
-assert "8 dong; 7 question_id khac nhau; 7 cau hoi" in o and "[KIEM TRA] tasql: 8/8 dong da cham (DU)" in o, o[:600]
-# 9. hai phuong phap moi: vsql_paper (view kieu Hinh 3), vsqlplus_fig4 (2 huong, cung template Hinh 4 + Bang 6)
-pv = {v.name: v for v in V.validate(s, A.oracle_views(s, [it["gold"] for it in ITEMS], paper=True))}
-sh = pv["v_superhero"]
-nm = {c.name for c in sh.cols}       # chi bo cot khoa ngoai cua bang cha DA noi vao view (o day: colour, publisher)
-assert not nm & {"eye_colour_id", "hair_colour_id", "skin_colour_id", "publisher_id"} and {"id", "eye_colour", "publisher_name", "gender_id"} <= nm, nm
-assert " LEFT JOIN publisher ON " in sh.ddl() and " LEFT JOIN colour eye_colour ON " in sh.ddl() and " AS " not in sh.ddl().split(" FROM ")[1]
-assert all(v.verified == "rows_equal" for v in pv.values()), [(v.name, v.verified) for v in pv.values()]
-run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "vsql_paper,vsqlplus_fig4",
+assert f"{N} dong; {N} question_id khac nhau; {N} cau hoi" in o and f"[KIEM TRA] tasql: {N}/{N} dong da cham (DU)" in o, o[:600]
+# 9. vsqlplus_fig4 (2 huong, cung template Hinh 4 + Bang 6 voi vsql)
+run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "vsqlplus_fig4",
                   "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
                   "--all-max-objects", "0", "--all-max-tokens", "0", "--k-cand", "6", "--n-samples", "3"], llm=llm)
-g2 = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().splitlines()] for m in ["vsql_paper", "vsqlplus_fig4"]}
-assert len(g2["vsql_paper"]) == len(g2["vsqlplus_fig4"]) == 8 and llm.fig4 > 0
-assert g2["vsqlplus_fig4"][3]["fallback"] and g2["vsqlplus_fig4"][3]["fallback"][0]["added"] == ["attribute"]
-assert sum(r["correct"] for r in g2["vsqlplus_fig4"]) == 8, [r["outcome"] for r in g2["vsqlplus_fig4"]]
-assert (out / "views" / "superhero.oracle_paper.sql").exists()
+g2 = [json.loads(l) for l in (out / "predictions_vsqlplus_fig4.jsonl").read_text().splitlines()]
+assert len(g2) == N and llm.fig4 > 0
+assert g2[3]["fallback"] and g2[3]["fallback"][0]["added"] == ["attribute"]
+assert sum(r["correct"] for r in g2) == N, [r["outcome"] for r in g2]
+# 10. prompt cua V-SQL; ban ghi cua cai dat V-SQL cu (khong co "impl") bi tach ra va cham lai
+out2 = tmp / "out2"
+out2.mkdir()
+(out2 / "predictions_vsql.jsonl").write_text("".join(json.dumps(dict(r, correct=False, impl=None)) + "\n" for r in got["vsql"]))
 seen = []
 _orig = llm.chat
 def _spy(prompt, meta=None, **o):  # noqa: E302
     seen.append((meta["stage"], prompt))
     return _orig(prompt, meta, **o)
 llm.chat = _spy  # noqa: E305
-run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "vsql_fair",
+run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out2), "--methods", "vsql",
                   "--tables-json", str(tmp / "dev_tables.json"), "--no-embed"], llm=llm)
 s1 = [p for st, p in seen if st == "vsql_s1"]
-assert s1 and all(p.startswith(P_VSQL_1.split("{relevant_db_schema}")[0]) for p in s1)           # template Hinh 4
-assert "| value_description | example_values" in s1[0] and "# table: publisher" in s1[0]         # bang tra cuu van hien
-assert "eye_colour_id |" in s1[0] and "eye_colour |" in s1[0]          # vsql_fair giu cot khoa ngoai trong view
-assert (out / "views" / "superhero.oracle_fair.sql").exists()
-assert sum(json.loads(l)["correct"] for l in (out / "predictions_vsql_fair.jsonl").read_text().splitlines()) == 7   # cau ao giac Table 1 o gd2
-summary = (out / "summary.md").read_text()
-assert "So cau hoi chung cho moi cau hinh: **8**" in summary
+s2 = [p for st, p in seen if st == "vsql_s2"]
+assert len(s1) == N and all(p.startswith(P_VSQL_1.split("{relevant_db_schema}")[0]) for p in s1)  # template Hinh 4; cham lai du N cau
+left = V.leftover_tables(s, oracle)            # D' = view + bang ngoai moi view; bang da gop vao view (publisher) an
+assert "| value_description | example_values" in s1[0] and "# table: publisher" not in s1[0]
+assert all(p.count("# table: ") == len(left) for p in s1) and all(f"# table: {t}" in s1[0] for t in left)
+assert all(p.count("# view: ") == len(oracle) for p in s1)                                        # moi view cua CSDL, khong truy hoi
+from vsql.methods import P_VSQL_2  # noqa: E402
+assert "\n\n# relevant db schema\n" in P_VSQL_1 and "\n\n# question\n{query}" in P_VSQL_1          # Hinh 4 tung chu
+assert "restore the sql in view query to one used the original table query without explanation\nnotice:" in P_VSQL_2
+assert P_VSQL_2.endswith("\n\n# foramt\n```sql\n{{sql}}\n```")
+vs = next(p for p in s1 if "# view: v_superhero" in p).split("# view: v_superhero")[1].split("# view: ")[0]
+assert "eye_colour_id |" not in vs and "eye_colour |" in vs              # Hinh 3: bo cot id khoa ngoai da thay bang gia tri
+assert len(s2) == N                         # giai doan 2 luon chay, ke ca dummy SQL khong dung view ("FROM publisher")
+p4 = next(p for p in s2 if "FROM publisher" in p)
+assert "# table: publisher" in p4 and "comply with the syntax of SQLite" in p4
+assert (out2 / "views" / "superhero.oracle.sql").exists() and (out2 / "old_predictions_vsql_1.jsonl").exists()
+new = [json.loads(l) for l in (out2 / "predictions_vsql.jsonl").read_text().splitlines()]
+assert len(new) == N and all(r["impl"] == 4 and r["calls"] == 2 for r in new)
+assert sum(r["correct"] for r in new) == N - 1                                  # cau ao giac Table 1 o gd2
+summary = (out2 / "summary.md").read_text()
+assert f"So cau hoi chung cho moi cau hinh: **{N}**" in summary
 assert "## 5. Tach giai doan" in summary and "### Theo so bang trong SQL dap an" in summary
 
 # DIN-SQL (bo self-correction) va DAIL-SQL (1 mau, khong bau chon), voi LLM gia lap
@@ -270,11 +312,11 @@ run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(o
                   "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
                   "--dail-train", str(tmp / "train.json"), "--dail-train-tables", str(tmp / "train_tables.json")], llm=llm)
 gd = [json.loads(l) for l in (out / "predictions_dinsql.jsonl").read_text().splitlines()]
-assert len(gd) == 8 and all(r["calls"] == 3 for r in gd) and sum(r["correct"] for r in gd) == 8, [r["outcome"] for r in gd]
+assert len(gd) == N and all(r["calls"] == 3 for r in gd) and sum(r["correct"] for r in gd) == N, [r["outcome"] for r in gd]
 assert "din_nested" not in din_seen and din_seen["din_easy"] and din_seen["din_nonnested"], din_seen
 if have_sm:
     ga = [json.loads(l) for l in (out / "predictions_dailsql.jsonl").read_text().splitlines()]
-    assert len(ga) == 8 and all(r["calls"] in (1, 2) and r["stage1_correct"] for r in ga) and sum(r["correct"] for r in ga) == 8
+    assert len(ga) == N and all(r["calls"] in (1, 2) and r["stage1_correct"] for r in ga) and sum(r["correct"] for r in ga) == N
     assert len(ga[0]["dail_examples"]) == 7
 else:
     print("[bo qua] DAIL-SQL: chua cai sql_metadata<3")

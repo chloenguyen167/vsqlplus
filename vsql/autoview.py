@@ -3,7 +3,8 @@ cha theo chieu N-1, ten cot sach (`eye_colour`, `publisher_name`) thay vi ten co
 
 Dung cho ca hai noi:
   * V-SQL (tai hien paper): `oracle_views` - chi tao view cho cac bang goc xuat hien trong phep JOIN cua SQL dap an
-    (paper: "we referred to the join operations in the ground truth SQL ... and manually designed the view").
+    (paper: "we referred to the join operations in the ground truth SQL ... and manually designed the view"); kieu Hinh 3
+    (alias = ten bang, noi theo thu tu cot, cot id khoa ngoai toi bang tra cuu duoc thay tai cho bang gia tri).
   * V-SQL+ (cai tien): `auto_views` - tu dong tu do thi khoa ngoai, khong nhin dap an.
 
 Dam bao dung dan:
@@ -72,7 +73,7 @@ class _Builder:
         return a
 
 
-def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", lookup_cols=4, paper=False, keep_fk=False):
+def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", lookup_cols=4, paper=False):
     """View N-1 cho bang `base`; allowed: chi noi toi cac bang trong tap nay (None = moi bang).
     Tu muc noi thu 2, view tu dong chi noi bang tra cuu co <= lookup_cols cot (vd colour, gender)."""
     b = _Builder(schema, base, "v_" + base, origin, paper)
@@ -102,11 +103,28 @@ def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", 
                 expand(a, p, d - 1, path | {p})
 
     expand(base, base, depth, {base})
-    if paper and not keep_fk and b.v.joins:
-        # Hinh 3: bo cot khoa ngoai da duoc thay bang gia tri cua bang cha (gender_id -> gender), giu khoa chinh bang goc
-        replaced = {(j.parent, c) for j in b.v.joins for c, _ in j.on}
+    if paper and b.v.joins:
+        # Hinh 3: cot id khoa ngoai toi BANG TRA CUU (gender, colour, race...: khoa thay the `id` + mot cot gia tri) duoc THAY
+        # TAI CHO bang gia tri do (gender_id -> gender; thu tu: id, superhero_name, full_name, gender, eye_colour, ...,
+        # height_cm, weight_kg). Khoa ngoai khac (Patient.ID, raceId, molecule_id 'TR000', year...) la ma dinh danh co nghia
+        # (cau hoi loc / liet ke theo no; 13/11: bo het thi ~130/500 dap an dung cot khong con trong view) nen giu, cot cua
+        # bang cha dat ngay sau; khoa ngoai toi bang khong noi vao view cung giu.
         keep_pk = set(schema.tables[base].pk)
-        b.v.cols = [c for c in b.v.cols if (c.alias, c.col) not in replaced or (c.alias == base and c.col in keep_pk)]
+        out = []
+
+        def lookup(j):          # nhu moi truong hop cua Hinh 3: <bang>.<x>_id -> <bang tra cuu>.id, bang tra cuu = id + 1 cot gia tri
+            return len(j.on) == 1 and j.on[0][1].lower() == "id" and len(schema.tables[j.table].columns) == 2
+
+        def emit(alias):
+            for c in [c for c in b.v.cols if c.alias == alias]:
+                js = [j for j in b.v.joins if j.parent == alias and j.on[0][0] == c.col]
+                swapped = any(j.parent == alias and c.col in [p for p, _ in j.on] and lookup(j) for j in b.v.joins)
+                if not swapped or (alias == base and c.col in keep_pk):
+                    out.append(c)
+                for j in js:
+                    emit(j.alias)
+        emit(base)
+        b.v.cols = out
     return b.v if b.v.joins else None
 
 
@@ -115,10 +133,12 @@ def auto_views(schema, depth=2, max_cols=60):
     return [v for v in (build_view(schema, t, depth, None, max_cols, "auto") for t in schema.tables) if v]
 
 
-def oracle_views(schema, gold_sqls, max_cols=10 ** 6, paper=False, keep_fk=False):
+def oracle_views(schema, gold_sqls, max_cols=10 ** 6):
     """Tai hien paper: chi tao view cho cac bang 'goc' cua cac mau JOIN trong SQL dap an (tu do moi bang con lai deu
     toi duoc theo chieu N-1), noi toi cac bang cha xuat hien trong cac mau do. Mau JOIN co quan he 1-N (khong co bang
-    goc) khong tao view: paper khong mo ta view nhan ban dong; cac bang do van co mat trong schema."""
+    goc) khong tao view: paper khong mo ta view nhan ban dong; cac bang do van co mat trong schema.
+    Kieu Hinh 3: alias = ten bang (bang noi nhieu lan nhu colour moi dung ten vai tro), noi theo thu tu cot khoa ngoai,
+    cot id khoa ngoai toi bang tra cuu duoc thay tai cho bang gia tri (v_superhero: dung 12 cot, dung thu tu Hinh 3)."""
     allowed = {}
     for sql in gold_sqls:
         S = tables_in_sql(sql, schema)
@@ -129,8 +149,7 @@ def oracle_views(schema, gold_sqls, max_cols=10 ** 6, paper=False, keep_fk=False
             allowed.setdefault(roots[0], set()).update(S)
     out = []
     for root, S in sorted(allowed.items()):
-        v = build_view(schema, root, depth=len(S), allowed=S, max_cols=max_cols, origin="oracle", paper=paper,
-                       keep_fk=keep_fk)
+        v = build_view(schema, root, depth=len(S), allowed=S, max_cols=max_cols, origin="oracle", paper=True)
         if v:
             out.append(v)
     return out

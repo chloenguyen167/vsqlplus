@@ -28,9 +28,8 @@ Như vậy bản trong repo đúng là bản gốc 2024 trên OSS. Bản này c�
 chính thức coi là bản chuẩn) thì không. Bản Hugging Face hiện hành (cập nhật 2026-10) là bộ câu hỏi đã viết lại nhiều (độ khó
 8/32/460), không so được với paper. Paper không ghi link hay phiên bản dữ liệu, và Bảng 2 (148/250/102) khớp cả hai bản.
 
-Notebook cho chọn phiên bản (`DATASET`), mặc định `2025-07-04`, kèm kiểm tra md5. Mỗi phiên bản ghi kết quả vào thư mục riêng
-(`cmp_<model>_d2025` cho bản 2025, `cmp_<model>` cho bản 2024). Mã cũ gộp kết quả theo `question_id` nên với bản 2024 chỉ còn 498.
-Mã mới định danh mỗi câu theo vị trí dòng (`uid`), nên luôn chấm đủ 500 dòng.
+**Từ 13/11 chỉ dùng bản 2025-07-04** (notebook tải từ Hugging Face, kiểm tra md5; thư mục kết quả `cmp_<model>_d2025`).
+`run_compare.py` từ chối file câu hỏi có `question_id` lặp, tức bản 2024. Mỗi câu định danh theo vị trí dòng (`uid`).
 
 ### 1.2 Baseline sai đối tượng
 
@@ -57,7 +56,7 @@ Giai đoạn 2 không làm mất câu đúng mà còn sửa được 22 câu. **
 2. **Evidence của BIRD nói theo tên cột gốc** (`A15`, `colour.id`, `Currency`). Khi view đổi tên cột, mô hình phải tự ánh xạ
    evidence sang tên mới.
 3. **Bảng bị ẩn khỏi schema.** D′ cũ chỉ giữ các bảng *không nằm trong view nào*, nên bảng thực thể như `customers` biến mất.
-   Câu "tỉ lệ khách hàng trả EUR/CZK" buộc phải đếm qua `v_yearmonth`, nên đếm số dòng tháng thay vì số khách (uid 1471, 1486). Đây là đúng thiết kế D′ của paper, nên `vsql` vẫn giữ; V-SQL+ xử lý ở hướng 1.
+   Câu "tỉ lệ khách hàng trả EUR/CZK" buộc phải đếm qua `v_yearmonth`, nên đếm số dòng tháng thay vì số khách (uid 1471, 1486). `vsql` hiện tại hiện lại các bảng này (mục 2.1).
 4. **View 1-N có nhân bản dòng** (`oracle_fan`, kèm dòng `WARNING`). Paper không có loại view này.
 5. **Prompt không phải của paper**, và schema không có mô tả cột (paper Bảng 6 dùng `database_description`).
 
@@ -73,58 +72,60 @@ nguyên (`COUNT(*)` của view bằng của bảng gốc ở cả 11 CSDL).
 
 ## 2. Tái hiện lại cho đúng
 
-### 2.1 V-SQL (`vsql`) — giữ đúng theo paper
+### 2.1 V-SQL (`vsql`): bản tái hiện duy nhất, sát paper nhất có thể
 
-| Thành phần | Paper | Cài đặt |
+Trước 13/11 mã có ba bản (`vsql` bản đầu, `vsql_paper`, `vsql_fair`). Nay chỉ còn một bản `vsql` (phiên bản cài đặt `IMPL = 4`
+trong `vsql/methods.py`); bản ghi của các cài đặt cũ trong thư mục kết quả được tách ra `old_predictions_vsql_*.jsonl`.
+
+| Thành phần | Paper nói gì | Cài đặt |
 |---|---|---|
-| Dữ liệu | BIRD mini-dev, 500 câu | như paper, đủ 500 câu |
-| View | Thiết kế theo các phép JOIN trong SQL đáp án (mục 6), kiểu Hình 3 | `autoview.oracle_views`: mỗi mẫu JOIN trong đáp án có một bảng gốc (từ đó đi tới mọi bảng khác theo chiều N-1) → một view `v_<bảng gốc>` nối các bảng cha trong mẫu đó, `LEFT JOIN` như Hình 3 |
-| Tên cột view | Hình 3: `eye_colour`, `publisher_name` | như Hình 3 |
-| Schema D′ | các view thay cho các bảng (mục 4.1, Hình 1A) | các view + những bảng không nằm trong view nào; bảng đã gộp vào view không hiện riêng |
-| Cách trình bày schema | Bảng 6: `original_column_name, column_name, column_description, data_format`, đánh dấu khóa ngoại | như Bảng 6 (khóa ngoại ghi thành dòng `foreign keys`) |
-| Prompt giai đoạn 1 | Hình 4 | Hình 4 nguyên văn |
-| Giai đoạn 2 | LLM khôi phục, prompt Hình 5 | Hình 5 nguyên văn (`{db_type}` = SQLite); view schemas = câu `CREATE VIEW` của các view mà dummy SQL dùng; table schemas = các bảng nguồn (trình bày như Bảng 6) |
-| Tham số | temperature 0, top-p 1, tối đa 800 token | như paper |
+| View (mục 6, Hình 2, Hình 3, Bảng 4) | Thiết kế tay theo các phép JOIN trong SQL đáp án. Hình 3: `v_superhero` = `id, superhero_name, full_name, gender, eye_colour, hair_colour, skin_colour, race, publisher_name, alignment, height_cm, weight_kg`; `gender_id`, `eye_colour_id`… "are mapped to their specific values"; `left join `colour` eye_colour on …`. Hình 2 (prompt nhờ LLM gợi ý view): tên bắt đầu bằng `v_`, chỉ dùng bảng gốc, gộp các bảng liên quan | `autoview.oracle_views`: mỗi mẫu JOIN của đáp án có bảng gốc → view `v_<bảng gốc>` nối các bảng cha trong mẫu đó bằng `left join`, chỉ dùng bảng gốc. Cột id trỏ tới **bảng tra cứu** (khóa `id` + một cột giá trị, như mọi trường hợp của Hình 3) được thay tại chỗ bằng giá trị; `v_superhero` sinh ra trùng Hình 3 cả 12 cột, thứ tự và cách viết. Khóa ngoại khác (`Patient.ID`, `raceId`, `molecule_id`, `year`…) là mã định danh có nghĩa nên giữ: nếu bỏ hết thì khoảng 130/500 đáp án dùng cột không còn trong view. Không dùng prompt Hình 2: paper nói view cuối cùng là thiết kế tay (mục 6, mục 7) |
+| Schema D′ (mục 4.1, Hình 1A) | "D′ denotes the database schema composed of views. It is used to replace D" | Mọi view của CSDL + những bảng không nằm trong view nào (ở cả 11 CSDL không còn bảng nào như vậy, nên D′ chỉ gồm view). **Không có bước truy hồi / chọn view**: view đã được thiết kế từ đáp án của chính CSDL đó, đưa hết vào `{relevant_db_schema}` |
+| Trình bày schema (Bảng 6) | `original_column_name, column_name, column_description, data_format` | Như Bảng 6, thêm `value_description`, `example_values` (paper không nói cách trình bày trong prompt; đây là loại thông tin TA-SQL nhận được); tên cột đặc biệt có backtick. Đây là điểm duy nhất thêm so với paper |
+| Giai đoạn 1 (Hình 4) | Prompt Hình 4 | Đúng từng chữ (đã so lại 13/11). Evidence của BIRD nối vào `{query}` (paper không nói; mọi phương pháp đều dùng). Hình 4 không nêu phương ngữ SQL, không có khối định dạng: giữ nguyên |
+| Giai đoạn 2 (Hình 5, mục 4.4, 4.5) | Prompt Hình 5; "the dummy SQL is not executed"; bảng liên quan lấy theo định nghĩa view mà dummy SQL dùng | Đúng từng chữ (13/11 sửa: paper viết `restore the sql in view query`, không có ngoặc kép; giữ cả lỗi chính tả `foramt`), `{db_type}` = SQLite. **Luôn chạy**, kể cả khi dummy SQL không dùng view. `{view_schemas}` = câu `create view` kiểu Hình 3 của các view mà dummy SQL dùng; `{table_schemas}` = bảng nguồn của các view đó + bảng mà dummy SQL truy vấn trực tiếp |
+| Tham số (mục 5.1) | nhiệt độ 0, top-p 1, tối đa 800 token; không self-consistency, không sửa lỗi | như paper |
 
-Những điểm paper không công bố hoặc không nói rõ, nên phải chọn một cách làm:
-- **View cụ thể**: paper không công bố view viết tay. View được dựng tự động đúng theo quy trình paper mô tả (dựa trên JOIN
-  của đáp án, kiểu Hình 3). Mẫu JOIN 1-N (không có bảng gốc) không tạo view, vì paper không có loại view nhân bản dòng.
-- **Evidence**: Hình 4 chỉ có `{relevant_db_schema}` và `{query}`, và paper không nói có dùng evidence hay không. Template giữ
-  nguyên; evidence của BIRD được nối vào nội dung `{query}` sau câu hỏi, giống mọi phương pháp khác. Tắt bằng
-  `--vsql-evidence none`.
+Mẫu JOIN 1-N (không có bảng gốc) không tạo view, vì paper không có loại view nhân bản dòng; 36/500 câu thuộc loại này phải nối hai view.
 
-Việc D′ ẩn các bảng đã gộp vào view (vd `customers`, xem 1.3 ý 3) là thiết kế của paper nên được giữ nguyên trong `vsql`.
-V-SQL+ xử lý điểm này ở hướng 1.
+**Cái giá của D′ đúng paper:** 46/500 câu chỉ cần một bảng "cha" (vd đếm khách hàng, đếm cầu thủ) mà bảng đó chỉ còn nằm trong
+view của bảng con, nên phải truy vấn qua view (số dòng khác). Với cài đặt `vsql_fair` cũ (có hiện bảng), V-SQL đúng 6/22 câu loại
+này trong mẫu 200, TA-SQL 7/22.
 
-### 2.1b Hai bản V-SQL: `vsql` và `vsql_paper`
+### 2.1b Rà soát V-SQL ngày 13/11 (lần chạy qwen3.5:4b, mẫu 200 câu, cài đặt `vsql_fair` cũ)
 
-| | `vsql` (bản hiện tại) | `vsql_paper` (sát Hình 3) |
-|---|---|---|
-| Tập bảng nối vào view | theo JOIN của SQL đáp án | như `vsql` |
-| Cột id khóa ngoại đã được thay bằng giá trị (`gender_id` khi đã nối `gender`) | giữ | **bỏ**, như Hình 3 (giữ khóa chính bảng gốc) |
-| Alias trong `CREATE VIEW` | luôn đặt theo vai trò (`superhero AS hero`) | **tên bảng**; chỉ bảng nối nhiều lần mới có alias, viết như Hình 3 (`left join colour eye_colour`) |
-| Thứ tự JOIN | theo khai báo khóa ngoại | theo thứ tự cột trong bảng (như Hình 3) |
-| Prompt, D′, cách trình bày schema | Hình 4 + Hình 5, Bảng 6 | như `vsql` |
+Kết quả `results_new/ketqua_tasql_vsql_vsqlplus/cmp_qwen35_4b_d2025_mau200/`: TA-SQL 33,0%, DIN-SQL 29,5%, V-SQL (khi đó tên
+`vsql_fair`) 24,0%. Đã dựng lại từng prompt (không gọi LLM) và đọc câu trả lời thô trong `llm_cache.sqlite`.
 
-`v_superhero` của `vsql_paper` có đúng 12 cột như Hình 3. Không bản nào dùng prompt Hình 2: kết quả Bảng 3 của paper dùng view
-thiết kế tay theo JOIN đáp án (mục 6), mục 4.3 chỉ nói Hình 2 dùng để "hỗ trợ".
+**Đã sửa (lỗi cài đặt):**
+1. **Tên cột đặc biệt không được quote trong schema Bảng 6.** Mô hình tự chế tên `v_frpm.FRPM_Count_K_12`,
+   `v_frpm.Enrollment (`K-12`)`, `l.T-CHO`: khoảng 9 câu lỗi cú pháp / sai tên cột, phần lớn ở `california_schools` (V-SQL và TA-SQL
+   đều 0/12 ở CSDL này). TA-SQL ghi các tên này kèm backtick; nay V-SQL cũng vậy.
+2. **`extract_sql` lấy nhầm chữ "with" trong văn xuôi làm đầu câu SQL** ("To find the league with the most …"). Ở 8/200 câu mô hình
+   trả lời bằng văn xuôi: 7 câu không có SQL (trước đây tính là lỗi cú pháp, nay là `no_sql`), 1 câu (uid 160) có câu SQL nằm sau
+   đoạn văn mà bản cũ cắt sai. Bản mới bắt đầu từ `SELECT` / `WITH <tên> AS (`. Đã kiểm tra trên cache của các lần chạy: không SQL
+   nháp nào đang đúng bị đổi. Sửa này dùng chung cho V-SQL+, DIN-SQL, DAIL-SQL.
 
-### 2.1c `vsql_fair`: giữ phần paper quy định, chỉnh phần paper không nói
+**Không phải lỗi cài đặt, giữ nguyên (paper quy định):**
+- **Giai đoạn 2 (Hình 5) làm mất ròng 11 câu** (sửa đúng 6, làm hỏng 17, trong đó 11 câu `no such column`). Mô hình bỏ JOIN cần
+  thiết, đúng như notice 1 của Hình 5 ("SQL should contain join as little as possible"), ví dụ dummy
+  `SELECT v_Examination.SEX …` thành `SELECT Patient.SEX FROM Examination` không nối `Patient`.
+- **Hình 4 không nêu phương ngữ SQL**: mô hình dùng `YEAR()`, `EXTRACT`, `TIMESTAMPDIFF` (MySQL), khoảng 19 câu giai đoạn 1 lỗi cú pháp.
+  Hình 5 có yêu cầu SQLite, nhưng cài đặt cũ bỏ qua giai đoạn 2 khi dummy SQL không dùng view (53/200 câu, 8 câu lỗi cú pháp). Nay
+  giai đoạn 2 luôn chạy (mục 2.1).
+- **Hình 4 không có khối định dạng đầu ra** (Hình 5 có): 8 câu trả lời bằng văn xuôi, nhiều câu "mô phỏng" kết quả từ giá trị mẫu.
 
-| Paper quy định rõ → giữ nguyên | Paper không nói → chỉnh cho ngang TA-SQL |
-|---|---|
-| Hai giai đoạn; giai đoạn 2 do LLM khôi phục SQL (Hình 5) | **D′ của từng CSDL** (paper không công bố): các bảng không bị view nào thay thế vẫn hiện trong schema, nên câu hỏi về chính bảng `customers`, `gasstations`, `circuits`… không phải đi vòng qua view |
-| Prompt Hình 4 và Hình 5 nguyên văn | **Cách trình bày schema** (Bảng 6 chỉ là mô tả dataset): thêm cột `value_description` và `example_values` ("all possible values are […]" / "example values are […]"), tức đúng loại thông tin TA-SQL nhận được |
-| View thiết kế theo JOIN của đáp án; đưa hết view của CSDL vào prompt (paper không mô tả cách lấy "relevant views", nên không thêm bước chọn view nào) | Evidence: nối vào `{query}` (như mọi phương pháp) |
-| | **Giữ cột khóa ngoại trong view** (Hình 3 bỏ các cột này, nhưng paper không hiện bảng tra cứu cạnh view; khi bảng tra cứu vẫn hiện, bỏ cột làm mô hình nối view với bảng qua cột không tồn tại) |
-| Nhiệt độ 0, top-p 1, tối đa 800 token; không self-consistency, không sửa lỗi | |
+**Nguồn thua lớn nhất còn lại:** vì bảng tra cứu vẫn hiện cạnh view, **40/147** SQL nháp có dùng view lại JOIN thêm chính bảng
+đã gộp trong view (vd `FROM v_member JOIN major ON …` dù `v_member` đã có `major_name`). Nhóm này chỉ đúng **5/40 (12,5%)**, so với
+**30/107 (28%)** ở các SQL nháp không JOIN thừa. Hiện bảng tra cứu không có trong paper, nên đã bỏ (mục 2.1).
 
-Hai điểm được chỉnh này nhắm vào hai nguồn thua lớn nhất của V-SQL ở giai đoạn 1 với qwen3.5:4b: câu chỉ cần 1 bảng (V-SQL giai
-đoạn 1 đúng 21/86 câu, TA-SQL đúng 49/86), và thiếu giá trị mẫu khi lọc. Bất lợi lớn nhất là giai đoạn 2 thì **không chỉnh**, vì
-paper quy định rõ (LLM khôi phục theo Hình 5, không sửa lỗi).
+**Chọn view đưa vào prompt:** chú thích Hình 4 ghi schema là "description of tables related to the query, retrieved from a
+database" nhưng paper không mô tả bước truy hồi nào. View đã được thiết kế từ đáp án của từng CSDL, nên bản tái hiện đưa mọi view
+của CSDL vào prompt, không truy hồi. Prompt giai đoạn 1 trung bình khoảng 8.500 token (ký tự/4), `vsql_fair` cũ khoảng 9.850.
 
-Cập nhật 12/11: lần chạy qwen2.5-coder:7b dùng bản `vsql_fair` cũ (view bỏ cột khóa ngoại): 108/500 SQL nháp hỏng vì dùng cột
-khóa ngoại đã bị bỏ. Bản hiện tại giữ các cột này; cần chạy lại `vsql_fair`.
+Ngoài ra, prompt V-SQL dài (trung bình 8.809 token, 7,2 đối tượng schema). TA-SQL chỉ đưa các cột đã liên kết vào bước sinh SQL.
+Hai lần chạy TA-SQL trên cùng 200 câu, cùng model cho 36,0% và 33,0%, nên chênh lệch dưới khoảng 3–5 điểm trên mẫu 200 câu chưa
+đáng tin.
 
 ### 2.2 TA-SQL (`tasql`) — baseline của paper
 
@@ -239,13 +240,13 @@ giai đoạn 2 (như paper, Hình 5): LLM khôi phục dummy SQL về bảng g�
 | | `vsqlplus` | `vsqlplus_fig4` |
 |---|---|---|
 | Hướng 1 (view tự động) + hướng 2 (chọn view) | có | có |
-| Template giai đoạn 1 | prompt mới (`P_PLUS`) | **Hình 4 nguyên văn**, như `vsql_fair` |
-| Trình bày schema | `CREATE VIEW` có nguồn gốc cột, mô tả, giá trị mẫu | **Bảng 6 mở rộng, như `vsql_fair`** (cả giai đoạn 2) |
+| Template giai đoạn 1 | prompt mới (`P_PLUS`) | **Hình 4 nguyên văn**, như `vsql` |
+| Trình bày schema | `CREATE VIEW` có nguồn gốc cột, mô tả, giá trị mẫu | **Bảng 6 mở rộng, như `vsql`** (cả giai đoạn 2) |
 | Giá trị khớp trong DB | dùng để xếp hạng và ghi vào prompt | chỉ dùng để xếp hạng |
 | Schema lai | thêm bảng gốc + ghi chú cột nằm ở đâu | chỉ thêm bảng gốc |
 | Evidence | mục `# evidence` riêng | nối vào `{query}` như V-SQL |
 
-So sánh sạch nhất cho 2 hướng: `vsqlplus_fig4` − `vsql_fair`. Tác dụng riêng của prompt mới: `vsqlplus` − `vsqlplus_fig4`.
+So sánh sạch nhất cho 2 hướng: `vsqlplus_fig4` − `vsql`. Tác dụng riêng của prompt mới: `vsqlplus` − `vsqlplus_fig4`.
 
 **Các biến thể đối chiếu** (bật `ABLATION` trong notebook):
 
@@ -259,7 +260,7 @@ So sánh sạch nhất cho 2 hướng: `vsqlplus_fig4` − `vsql_fair`. Tác d�
 - 11/11 CSDL: mọi view (cả của V-SQL lẫn V-SQL+) có `COUNT(*)` bằng bảng gốc.
 - Độ phủ bảng đáp án của bước chọn view (BM25 + liên kết giá trị, **chưa** có embedding và bầu chọn) trên 266 câu thuộc
   5 CSDL lớn: top-1 82,3%, top-2 90,2%, top-3 97,7%, top-4 99,6%, top-5 100%.
-- `tests/test_compare.py`: đường ống đủ 4 phương pháp và 4 biến thể với LLM giả lập, kể cả bản ghi trùng lặp.
+- `tests/test_compare.py`: đường ống đủ các phương pháp và biến thể với LLM giả lập; từ chối file câu hỏi có `question_id` lặp (bản 2024); tách bản ghi của cài đặt V-SQL cũ.
 
 **Chi phí:** V-SQL+ gọi LLM nhiều hơn V-SQL ở 5 CSDL lớn (4 mẫu bầu chọn + 1 lần sinh dummy SQL + 1 lần khôi phục). Báo cáo
 ghi số lượt gọi và số token cho mỗi phương pháp. Bầu chọn chỉ dùng để **chọn view**, không bầu theo kết quả thực thi; schema
@@ -271,15 +272,15 @@ lai chỉ biên dịch thử, không xem kết quả chạy.
 
 Notebook `notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb` (GPU T4): chọn model (`qwen3.5:0.8b`, `qwen3:8b`, `qwen3.5:9b`), chạy
 lần lượt các ô. Notebook clone repo từ GitHub, nên **cần push mã mới lên `main` trước**. Kết quả lưu vào
-`MyDrive/vsqlplus_ketqua/cmp_<model>/` (`summary.md`, `summary.csv`, `predictions_<phương pháp>.jsonl`); nếu Colab ngắt thì
+`MyDrive/vsqlplus_ketqua/cmp_<model>_d2025/` (`summary.md`, `summary.csv`, `predictions_<phương pháp>.jsonl`); nếu Colab ngắt thì
 chạy lại, phần đã xong được bỏ qua.
 
 Dòng lệnh tương đương:
 
 ```bash
 D=minidev/MINIDEV
-python run_compare.py --data $D/mini_dev_sqlite.json --db-root $D/dev_databases --tables-json $D/dev_tables.json \
-    --tasql-meaning column_meaning.json --model qwen3:8b --out results/cmp_qwen3_8b            # 4 phương pháp chính
+python run_compare.py --data $D/mini_dev_sqlite_2025-07-04.json --db-root $D/dev_databases --tables-json $D/dev_tables.json \
+    --tasql-meaning column_meaning.json --model qwen3:8b --out results/cmp_qwen3_8b_d2025      # tasql, vsql, vsqlplus
 python run_compare.py ... --methods all                                                        # + 4 biến thể ablation
 python run_compare.py ... --views-only                                                         # chỉ sinh view
 python run_compare.py ... --selection-sweep --no-embed                                         # độ phủ bước chọn view

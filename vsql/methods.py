@@ -3,18 +3,22 @@
   tasql     : TA-SQL (Qu et al., ACL Findings 2024) - baseline ma paper V-SQL so sanh. Cai lai dung ma nguon chinh thuc:
               TASL (dummy SQL tren toan schema -> trich bang/cot) + TALOG (bieu dien ky hieu SR kieu pandas -> SQL).
               Prompt chep nguyen van (vsql/tasql_prompts.py).
-  vsql      : V-SQL tai hien: view thiet ke tu cac phep JOIN cua SQL dap an (muc 6 cua paper), giai doan 1 sinh dummy
-              SQL tren view bang prompt Hinh 4, giai doan 2 LLM khoi phuc ve bang goc bang prompt Hinh 5.
-  vsql_paper: nhu vsql, view sat Hinh 3 (bo cot id khoa ngoai da thay bang gia tri, alias = ten bang).
-  vsql_fair : view theo JOIN dap an kieu Hinh 3 nhung giu cot khoa ngoai; dua het view cua CSDL (khong them buoc chon view
-              nao ngoai paper); phan paper khong noi (bang hien canh view, cach trinh bay schema) chinh cho ngang TA-SQL.
+  vsql      : V-SQL tai hien (ban duy nhat), sat paper nhat co the:
+              - view thiet ke tu cac phep JOIN cua SQL dap an (muc 6), kieu Hinh 3 (alias = ten bang, bo cot id khoa ngoai
+                da thay bang gia tri); D' = cac view + bang khong nam trong view nao (muc 4.1: D' thay cho D);
+              - giai doan 1: prompt Hinh 4 nguyen van, {relevant_db_schema} = toan bo D' cua CSDL (view da thiet ke theo
+                JOIN dap an cua chinh CSDL do; KHONG co buoc truy hoi / chon view nao);
+              - giai doan 2: luon chay (paper mo ta khung 2 giai doan, dummy SQL khong duoc thuc thi), prompt Hinh 5
+                nguyen van ({db_type} = SQLite), bang lien quan theo dinh nghia view ma dummy SQL dung (muc 4.5).
+              Paper khong noi cach trinh bay schema trong prompt: Bang 6 them mo ta gia tri + gia tri mau (ngang TA-SQL),
+              ten cot dac biet co backtick.
   vsqlplus  : cai tien (V-SQL+), ket hop 2 huong, giai doan 2 giu nguyen nhu paper:
               Huong 1 - sinh view tu dong tu khoa ngoai (chi noi N-1 khi khoa duoc tham chieu la duy nhat, kiem tra so dong,
                         suy them khoa ngoai thieu khai bao, ten cot sach, ghi nguon goc cot).
               Huong 2 - chon view dung bang truy hoi lai (BM25 + embedding), bo tro boi: truy hoi muc cot roi gop len view,
                         lien ket gia tri voi DB, bau chon nhieu mau, schema lai (quay ve bang goc khi LLM dung cot khong
                         co trong view), va CSDL nho thi dua het view vao prompt.
-              vsqlplus_fig4: chi 2 huong; template va cach trinh bay schema y nhu vsql_fair.
+              vsqlplus_fig4: chi 2 huong; template va cach trinh bay schema y nhu vsql.
               Bien the: vsqlplus_all (chi huong 1), vsqlplus_novote, vsqlplus_novl, vsqlplus_nofb, vsqlplus_det.
 """
 import difflib
@@ -34,22 +38,24 @@ from .meta import Descriptions, load_tables_json, table6_table, table6_view, tab
 
 NOTES = {
     "tasql": "TA-SQL (baseline cua paper): TASL dummy SQL + TALOG SR->SQL",
-    "vsql": "V-SQL dung theo paper: view theo JOIN dap an, schema Bang 6, prompt Hinh 4 + Hinh 5",
+    "vsql": "V-SQL theo paper: view Hinh 3 theo JOIN dap an, D' = moi view cua CSDL, prompt Hinh 4 + Hinh 5",
     "vsqlplus": "V-SQL+ = huong 1 (sinh view tu dong) + huong 2 (chon view bang truy hoi lai); giai doan 2 nhu paper",
     "vsqlplus_all": "Chi huong 1: view tu dong, dua het view vao prompt (khong chon view)",
     "vsqlplus_novote": "V-SQL+ bo bau chon nhieu mau (huong 2)",
     "vsqlplus_novl": "V-SQL+ bo lien ket gia tri (huong 2)",
     "vsqlplus_nofb": "V-SQL+ bo schema lai (huong 2)",
     "vsqlplus_det": "V-SQL+ thay giai doan 2 bang giai ma tat dinh (ngoai de xuat, de doi chieu)",
-    "vsql_paper": "V-SQL sat Hinh 3: view bo cot khoa ngoai da thay bang gia tri, alias = ten bang; prompt Hinh 4 + Hinh 5",
-    "vsql_fair": "V-SQL theo paper (view theo JOIN dap an, giu cot khoa ngoai, Hinh 4/5); phan paper khong noi chinh cho ngang TA-SQL",
-    "vsqlplus_fig4": "V-SQL+ chi 2 huong (view tu dong + chon view); gd1/gd2 cung template + schema nhu vsql_fair",
+    "vsqlplus_fig4": "V-SQL+ chi 2 huong (view tu dong + chon view); gd1/gd2 cung template + schema nhu vsql",
     "dinsql": "DIN-SQL (baseline Bang 3): schema linking -> phan loai -> sinh SQL theo loai; bo self-correction nhu paper",
     "dailsql": "DAIL-SQL (baseline Bang 3): schema CREATE TABLE + 7 vi du train BIRD chon 2 vong; 1 mau, khong bau chon nhu paper",
 }
-EXTRA = ["vsql_paper", "vsql_fair", "vsqlplus_fig4", "dinsql", "dailsql"]                     # chay khi chon rieng (notebook: tick o tuong ung)
+EXTRA = ["vsqlplus_fig4", "dinsql", "dailsql"]           # chay khi chon rieng (notebook: tick o tuong ung)
 MAIN = ["tasql", "vsql", "vsqlplus"]                      # so sanh chinh: TA-SQL (baseline cua paper), V-SQL, V-SQL+
 ABLATIONS = ["vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb", "vsqlplus_det"]
+# phien ban cai dat cua tung phuong phap (ghi vao moi ban ghi). Doi cach cai dat thi tang so: ban ghi cu trong thu muc ket qua
+# (vd predictions_vsql.jsonl cua ban V-SQL cu) bi tach ra old_predictions_*.jsonl va cham lai (cau tra loi LLM con trong cache).
+IMPL = {"vsql": 4, **{m: 2 for m in ["vsqlplus", "vsqlplus_fig4", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl",
+                                     "vsqlplus_nofb"]}}       # 13/11: Hinh 4/5 chinh lai dung tung chu -> prompt gd2 doi
 
 # --------------------------------------------------------------------------- prompt
 # V-SQL, Hinh 4 cua paper (nguyen van). Evidence cua BIRD (neu dung) nam trong {query}, khong them muc nao vao template.
@@ -59,28 +65,34 @@ notice:
 1. Do not alias the output fields
 2. must avoid ambiguous column name by using table name and column name in the SQL statement. For example, use `table_name.column_name` instead of just `column_name`.
 3. refer to "relevant db schema"
+
 # relevant db schema
 {relevant_db_schema}
+
 # question
 {query}"""
 
 # V-SQL, Hinh 5 cua paper (nguyen van, ke ca loi chinh ta "foramt")
 P_VSQL_2 = """# target
-According to the "views schemas", "view query" and "relevant table schemas", restore the sql in "view query" to one used the original table query without explanation
+According to the "views schemas", "view query" and "relevant table schemas", restore the sql in view query to one used the original table query without explanation
 notice:
 1. SQL should contain "join" as little as possible.
 2. table in "views schemas" should not be contained in output.
 3. comply with the syntax of {db_type}.
 4. must avoid ambiguous column name by using table name and column name in the SQL statement. For example, use `table_name.column_name` instead of just `column_name`.
+
 # view schemas
 {view_schemas}
+
 # view query
 Question: {query}
 ```sql
 {dummy_sql}
 ```
+
 # relevant table schemas
 {table_schemas}
+
 # foramt
 ```sql
 {{sql}}
@@ -164,21 +176,9 @@ class DbCtx:
     # ---- view
     @property
     def oracle(self):
+        """View cua V-SQL: theo JOIN dap an, kieu Hinh 3 (alias = ten bang, chi bang noi nhieu lan moi co alias, noi theo thu
+        tu cot, bo cot id khoa ngoai da thay bang gia tri)."""
         return self.lazy("oracle", lambda: V.validate(self.schema, A.oracle_views(self.schema, self.gold_sqls)))
-
-    @property
-    def oracle_paper(self):
-        """View cua V-SQL dung kieu Hinh 3: cung tap bang theo JOIN dap an, nhung bo cot khoa ngoai da duoc thay bang gia
-        tri cua bang cha (giu khoa chinh bang goc), alias = ten bang (chi bang noi nhieu lan moi co alias), noi theo thu tu cot."""
-        return self.lazy("oracle_paper", lambda: V.validate(
-            self.schema, A.oracle_views(self.schema, self.gold_sqls, paper=True)))
-
-    @property
-    def oracle_fair(self):
-        """View cua vsql_fair: nhu oracle_paper (theo JOIN dap an, alias = ten bang, noi theo thu tu cot) nhung GIU cot khoa
-        ngoai, vi vsql_fair van hien bang tra cuu canh view (bo cot thi LLM noi view voi bang qua cot khong ton tai)."""
-        return self.lazy("oracle_fair", lambda: V.validate(
-            self.schema, A.oracle_views(self.schema, self.gold_sqls, paper=True, keep_fk=True)))
 
     @property
     def auto(self):
@@ -370,9 +370,10 @@ def vsql_query(item, args):
 
 
 class Render6:
-    """Trinh bay schema kieu Bang 6 cua paper. extended=True (vsql_fair, vsqlplus_fig4): them 2 cot `value_description` va
+    """Trinh bay schema kieu Bang 6 cua paper. extended=True (vsql, vsqlplus_fig4): them 2 cot `value_description` va
     `example_values` - paper khong quy dinh cach trinh bay schema trong prompt; them de ngang muc thong tin TA-SQL nhan duoc
-    (TA-SQL dua mo ta gia tri va "all possible values are [...]" / "example values are [...]")."""
+    (TA-SQL dua mo ta gia tri va "all possible values are [...]" / "example values are [...]"). Ten cot can quote (co dau
+    cach, ngoac, dau tru: `FRPM Count (K-12)`, `T-CHO`) ghi kem backtick nhu TA-SQL, de LLM khong tu che ten (FRPM_Count_K_12)."""
 
     def __init__(self, ctx, extended=False):
         self.ctx, self.ext = ctx, extended
@@ -391,7 +392,7 @@ class Render6:
         for shown, t, c, ctype in triples:
             m = self.ctx.desc.get(t, c)
             full = (m.get("full") or c) if shown.lower() == c.lower() else shown.replace("_", " ")
-            row = [shown, full, m.get("desc", ""), m.get("fmt") or (ctype or "").lower()]
+            row = [qi(shown) if self.ext else shown, full, m.get("desc", ""), m.get("fmt") or (ctype or "").lower()]
             if self.ext:
                 row += [m.get("values", ""), self._examples(t, c)]
             out.append(row)
@@ -405,9 +406,9 @@ class Render6:
         if not self.ext:
             return table6_table(self.ctx.schema, self.ctx.desc, name)
         t = self.ctx.schema.tables[name]
-        fks = [f"{name}.{c} -> {fk.ref_table}.{r}" for fk in t.fks for c, r in zip(fk.cols, fk.ref_cols)]
+        fks = [f"{qi(name)}.{qi(c)} -> {qi(fk.ref_table)}.{qi(r)}" for fk in t.fks for c, r in zip(fk.cols, fk.ref_cols)]
         rows = self._rows([(c.name, name, c.name, c.type) for c in t.columns])
-        return "\n".join([f"# table: {name}", self._head()] + [" | ".join(r) for r in rows]
+        return "\n".join([f"# table: {qi(name)}", self._head()] + [" | ".join(r) for r in rows]
                          + (["foreign keys: " + "; ".join(fks)] if fks else []))
 
     def view(self, v):
@@ -417,27 +418,31 @@ class Render6:
         return "\n".join([f"# view: {v.name}", self._head()] + [" | ".join(r) for r in rows])
 
 
-def run_vsql(item, ctx, ask, rec, args, views=None, fair=False):
-    """V-SQL dung theo paper: D' = cac view + bang khong nam trong view nao (bang da gop vao view khong hien rieng);
-    schema trinh bay theo Bang 6; prompt Hinh 4 va Hinh 5 nguyen van."""
-    views = ctx.oracle if views is None else views
-    # fair: cac bang khong bi view nao thay the van hien (paper khong cong bo D' cua tung CSDL); mac dinh: D' = view + bang
-    # khong nam trong view nao (bang da gop vao view khong hien rieng)
-    tabs = A.visible_tables(ctx.schema, views) if fair else V.leftover_tables(ctx.schema, views)
-    r6 = Render6(ctx, extended=fair)
+def run_vsql(item, ctx, ask, rec, args):
+    """V-SQL: {relevant_db_schema} = D' cua CSDL = moi view (thiet ke theo JOIN dap an) + bang khong nam trong view nao, trinh
+    bay Bang 6 mo rong; prompt Hinh 4; giai doan 2 luon chay voi prompt Hinh 5. Khong co buoc truy hoi / chon view."""
+    views = ctx.oracle
+    tabs = V.leftover_tables(ctx.schema, views)
+    r6 = Render6(ctx, extended=True)
     parts = [r6.view(v) for v in views] + [r6.table(t) for t in tabs]
     rec["n_objects"] = len(views) + len(tabs)
     rec["schema_tables"] = sorted(set(tabs).union(*[v.source_tables() for v in views]))
     p1 = P_VSQL_1.format(relevant_db_schema="\n\n".join(parts), query=vsql_query(item, args))
     dummy = rec["dummy_sql"] = clean(ask(p1, "vsql_s1"))
-    return restore(ctx, item, ask, rec, dummy, views, tabs, "vsql_s2", args, r6)
+    # giai doan 2: bang goc ma dummy SQL truy van truc tiep (FROM/JOIN, ke ca bang bi an khoi D') cung dua vao "relevant
+    # table schemas"
+    direct = tables_in_sql(dummy, ctx.schema) if dummy else set()
+    return restore(ctx, item, ask, rec, dummy, views, [t for t in ctx.schema.tables if t in direct], "vsql_s2", args, r6,
+                   always=True)
 
 
-def restore(ctx, item, ask, rec, dummy, views, tabs, stage, args, r6=None):
-    """Giai doan 2 cua paper (Hinh 5): LLM khoi phuc dummy SQL tren view ve SQL tren bang goc."""
+def restore(ctx, item, ask, rec, dummy, views, tabs, stage, args, r6=None, always=False):
+    """Giai doan 2 cua paper (Hinh 5): LLM khoi phuc dummy SQL tren view ve SQL tren bang goc.
+    always=False (V-SQL+): dummy SQL khong dung view thi giu nguyen. always=True (V-SQL): luon goi Hinh 5 nhu paper (dummy SQL
+    khong duoc thuc thi; Hinh 5 con dua cu phap {db_type} va khoi dinh dang dau ra)."""
     used = [v for v in views if references(dummy, v.name)]
     rec["views_used"] = [v.name for v in used]
-    if not dummy or not used:
+    if not dummy or not (used or always):
         return dummy                            # dummy SQL khong dung view -> da la SQL tren bang goc
     tset = set().union(*[v.source_tables() for v in used]) | {t for t in tabs if references(dummy, t)}
     p2 = P_VSQL_2.format(db_type="SQLite", view_schemas="\n\n".join(v.ddl() for v in used), query=vsql_query(item, args),
@@ -599,7 +604,7 @@ def run_plus(item, ctx, ask, rec, args, llm, variant=""):
     colhits = link_columns(ctx.schema, item["question"], item.get("evidence")) if use_vl else set()
     rec["value_links"] = [(v, t, c) for v, t, c, _ in links[:8]]
     fig4 = variant == "fig4"
-    r6 = Render6(ctx, extended=True)        # fig4: cung cach trinh bay schema voi vsql_fair
+    r6 = Render6(ctx, extended=True)        # fig4: cung cach trinh bay schema voi vsql
 
     def make_prompt(o, extra=(), note=""):
         """fig4: template Hinh 4 + schema Bang 6 y nhu V-SQL; chi khac tap view/bang dua vao (huong 1 + huong 2).
@@ -683,15 +688,13 @@ def run_item(method, item, ctx, llm, args):
     rec = dict(uid=item["uid"], qid=item["question_id"], db_id=item["db_id"], difficulty=item.get("difficulty", "unknown"),
                method=method, calls=0, prompt_tokens=0, completion_tokens=0, llm_seconds=0.0, dummy_sql=None,
                views_used=[], n_objects=0)
+    if method in IMPL:
+        rec["impl"] = IMPL[method]
     ask = Asker(llm, rec, item["uid"])
     if method == "tasql":
         final = run_tasql(item, ctx, ask, rec, args)
     elif method == "vsql":
         final = run_vsql(item, ctx, ask, rec, args)
-    elif method == "vsql_paper":
-        final = run_vsql(item, ctx, ask, rec, args, views=ctx.oracle_paper)
-    elif method == "vsql_fair":
-        final = run_vsql(item, ctx, ask, rec, args, views=ctx.oracle_fair, fair=True)
     elif method == "dinsql":
         final = B.run_din(item, ctx, ask, rec, args)
     elif method == "dailsql":
@@ -712,7 +715,7 @@ def stage_views(method, ctx):
         return None
     if method.startswith("vsqlplus"):
         return ctx.auto
-    return {"vsql": ctx.oracle, "vsql_paper": ctx.oracle_paper, "vsql_fair": ctx.oracle_fair}[method]
+    return {"vsql": ctx.oracle}[method]
 
 
 def add_stage_info(rec, item, ctx):
@@ -764,4 +767,5 @@ def load_meaning(path):
     return json.loads(p.read_text(encoding="utf-8")) if p and p.exists() else None
 
 
-__all__ = ["DbCtx", "run_item", "score", "add_stage_info", "score_stage1", "NOTES", "MAIN", "ABLATIONS", "load_tables_json", "load_meaning"]
+__all__ = ["DbCtx", "run_item", "score", "add_stage_info", "score_stage1", "NOTES", "MAIN", "ABLATIONS", "IMPL", "load_tables_json",
+           "load_meaning"]
