@@ -235,8 +235,8 @@ Thư mục kết quả trên Drive:
 Kiểm tra toàn bộ đường ống với model thật trước khi chạy lâu. **Kết quả mong đợi:** một bảng EX có một dòng cho mỗi phương pháp đã chạy (mặc định 2 dòng: `vsql`, `vsqlplus`), mỗi dòng `n` = 3. EX của 3 câu không có ý nghĩa thống kê; chỉ cần **không có** `Error`/`Traceback`.
 
 Bước 8 ghi vào thư mục riêng `/content/ketqua/_thu` (xoá mỗi lần chạy, log đầy đủ ở `_thu/log.txt`), nên không chạy trước phần
-nào của Bước 9. Thứ dùng chung duy nhất là cache tập train của DAIL-SQL (che tên schema + embedding ~9.400 câu, vài phút lần
-đầu), lưu ở `MyDrive/vsqlplus_ketqua/dail_cache` để Bước 9, mọi model và các phiên sau dùng lại. Để trống `EMBED_MODEL` thì Bước 6
+nào của Bước 9. Thứ dùng chung duy nhất là cache tập train của DAIL-SQL (che tên schema + embedding ~9.400 câu, ~5–10 phút lần
+đầu trên CPU). Phần này được làm ở **Bước 4** (có dòng tiến độ) chứ không phải Bước 8; cache lưu ở `MyDrive/vsqlplus_ketqua/dail_cache` để Bước 9, mọi model và các phiên sau dùng lại. Để trống `EMBED_MODEL` thì Bước 6
 bỏ qua phần tải/thử embedding và mọi bước chạy với `--no-embed` (chỉ BM25); V-SQL, DIN-SQL, DAIL-SQL không dùng embedding này.
 Nếu thư mục kết quả đã có V-SQL+ chạy với cài đặt embedding khác, Bước 9 dừng với thông báo `[DUNG]` thay vì trộn hai cách.
 
@@ -392,3 +392,4 @@ Mọi bước của notebook đều gọi `run_compare.py`. Trong một ô Colab
 Các tham số của V-SQL+ (giữ mặc định để khớp tài liệu): `--k-cand 5` (số ứng viên đưa vào bầu chọn), `--n-samples 4`
 (1 tham lam + 3 mẫu), `--sample-temp 0.7`, `--topk 4`, `--all-max-objects 4`, `--all-max-tokens 3500`, `--max-fallback 2`.
 Tham số của V-SQL: `--vsql-evidence query|none` (nối evidence vào `{query}` của Hình 4/5 hoặc bỏ hẳn evidence).
+`--vsql-views oracle|all` (mặc định `oracle`, impl 6): chú thích Hình 4 của paper ghi `db_schema` là *"description of tables related to the query, retrieved from a database"*, mục 6 nói phải *"retrieve the correct view description based on the user's query"*. Paper không nói cách truy hồi, nên `oracle` lấy theo SQL đáp án: chỉ đưa các view có bảng gốc nằm trong SQL đáp án, cộng các bảng còn lại của D′ mà đáp án dùng (trung bình 1,9 đối tượng/câu thay vì 6,4). Đây là **cận trên (oracle view selection)**, phải ghi rõ khi báo cáo. `all` = D′ gồm mọi view của CSDL (impl 5, kết quả cũ dùng lại được).

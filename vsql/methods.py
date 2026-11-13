@@ -33,7 +33,7 @@ from .llm import extract_sql
 from .meta import Descriptions, load_tables_json, table6_table, table6_view, table_ddl
 
 NOTES = {
-    "vsql": "V-SQL theo paper: view Hinh 3 theo JOIN dap an, D' = moi view cua CSDL, prompt Hinh 4 + Hinh 5",
+    "vsql": "V-SQL theo paper: view Hinh 3 theo JOIN dap an; D' = ORACLE: chi view co bang goc nam trong SQL dap an (+ bang con lai ma dap an dung), prompt Hinh 4 + Hinh 5",
     "vsqlplus": "V-SQL+ = huong 1 (sinh view tu dong) + huong 2 (chon view bang truy hoi lai); giai doan 2 nhu paper",
     "vsqlplus_all": "Chi huong 1: view tu dong, dua het view vao prompt (khong chon view)",
     "vsqlplus_novote": "V-SQL+ bo bau chon nhieu mau (huong 2)",
@@ -49,8 +49,17 @@ MAIN = ["vsql", "vsqlplus"]                               # so sanh chinh: V-SQL
 ABLATIONS = ["vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb", "vsqlplus_det"]
 # phien ban cai dat cua tung phuong phap (ghi vao moi ban ghi). Doi cach cai dat thi tang so: ban ghi cu trong thu muc ket qua
 # (vd predictions_vsql.jsonl cua ban V-SQL cu) bi tach ra old_predictions_*.jsonl va cham lai (cau tra loi LLM con trong cache).
-IMPL = {"vsql": 5, "dinsql": 2, **{m: 2 for m in ["vsqlplus", "vsqlplus_fig4", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl",
+IMPL = {"vsql": 6, "dinsql": 3, **{m: 2 for m in ["vsqlplus", "vsqlplus_fig4", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl",
                                      "vsqlplus_nofb"]}}       # 13/11: Hinh 4/5 chinh lai dung tung chu -> prompt gd2 doi
+# vsql: impl 6 = --vsql-views oracle (mac dinh tu 14/11); impl 5 = --vsql-views all (D' = moi view cua CSDL, nhu truoc)
+VSQL_NOTE_ORACLE = NOTES["vsql"]
+VSQL_NOTE_ALL = "V-SQL theo paper: view Hinh 3 theo JOIN dap an, D' = moi view cua CSDL, prompt Hinh 4 + Hinh 5"
+
+
+def set_vsql_views(mode):
+    """--vsql-views: oracle (impl 6) | all (impl 5, ket qua cu van dung lai duoc). Doi IMPL/NOTES de tach ban ghi va ghi
+    dung mo ta trong summary.md."""
+    IMPL["vsql"], NOTES["vsql"] = (5, VSQL_NOTE_ALL) if mode == "all" else (6, VSQL_NOTE_ORACLE)
 
 # --------------------------------------------------------------------------- prompt
 # V-SQL, Hinh 4 cua paper (nguyen van). Evidence cua BIRD (neu dung) nam trong {query}, khong them muc nao vao template.
@@ -298,13 +307,31 @@ class Render6:
         return "\n".join([f"# view: {v.name}", self._head()] + [" | ".join(r) for r in rows])
 
 
+def vsql_schema(ctx, item, mode="oracle"):
+    """D' cua V-SQL -> (views, bang goc).
+    all: moi view cua CSDL + bang goc khong bi view thay the (impl 5).
+    oracle: chu thich Hinh 4 ("db_schema represents the description of tables related to the query, retrieved from a
+    database") va muc 6 ("retrieve the correct view description based on the user's query") -> prompt chi chua view lien
+    quan toi cau hoi. Paper khong noi cach truy hoi; o day dung SQL dap an (oracle, can tren): view co bang goc (base) nam
+    trong SQL dap an + bang con lai cua D' ma dap an dung + bang dap an chua view nao da chon phu (vd bang tra cuu dung rieng)."""
+    views = ctx.oracle
+    tabs = V.leftover_tables(ctx.schema, views)
+    if mode == "all":
+        return views, tabs
+    gold = tables_in_sql(item["SQL"], ctx.schema)
+    views = [v for v in views if v.base in gold]
+    tabs = [t for t in tabs if t in gold]
+    covered = set(tabs).union(*[v.source_tables() for v in views])
+    tabs += [t for t in ctx.schema.tables if t in gold and t not in covered]
+    return views, tabs
+
+
 def run_vsql(item, ctx, ask, rec, args):
     """V-SQL: {relevant_db_schema} = D' cua CSDL = moi view (thiet ke theo JOIN dap an) + bang goc khong bi view thay the
     (chi bang goc cua view va bang tra cuu id + 1 cot gia tri nhu colour/gender moi bien mat, Hinh 1(A)); trinh bay Bang 6 mo
     rong; prompt Hinh 4; giai doan 2 luon chay voi prompt Hinh 5, "relevant table schemas" = bang ma dummy SQL dung cot (muc
     4.5). Khong co buoc truy hoi / chon view."""
-    views = ctx.oracle
-    tabs = V.leftover_tables(ctx.schema, views)
+    views, tabs = vsql_schema(ctx, item, getattr(args, "vsql_views", "oracle"))
     r6 = Render6(ctx, extended=True)
     parts = [r6.view(v) for v in views] + [r6.table(t) for t in tabs]
     rec["n_objects"] = len(views) + len(tabs)
@@ -644,4 +671,4 @@ def score_stage1(rec, gold_rows, db_path, timeout):
     return rec
 
 
-__all__ = ["DbCtx", "run_item", "score", "add_stage_info", "score_stage1", "NOTES", "MAIN", "ABLATIONS", "IMPL", "load_tables_json"]
+__all__ = ["DbCtx", "run_item", "set_vsql_views", "vsql_schema", "score", "add_stage_info", "score_stage1", "NOTES", "MAIN", "ABLATIONS", "IMPL", "load_tables_json"]

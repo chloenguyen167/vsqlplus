@@ -128,11 +128,7 @@ def run_din(item, ctx, ask, rec, args):
         out = ask(DP.HUMAN_NESTED_CLASS_TEMPLATE.format(schema_links=links, sub_questions=subs, **kw), "din_nested",
                   system=DP.SYSTEM_NESTED_CLASS_TEMPLATE)
     out = _strip_think(out)
-    sql = _din_sql(out)
-    if sql is None:
-        # ban goc doc phan sau "SQL:" (GPT-4 luon viet dung dinh dang nay). Mo hinh nho hay tra thang cau SELECT hoac khoi ```sql```
-        # khong co "SQL:": 13/11 dung 73/200 cau cua qwen3.5:4b bi ghi thanh placeholder du da co SQL -> lay SQL tu cau tra loi
-        sql = extract_sql(out) or None
+    sql = _din_sql(out)                         # nhu ban goc: chi doc phan sau "SQL:"
     if sql is None:
         return "SELECT * FROM table"            # nhu ban goc: khong sinh duoc SQL -> placeholder
     sql = _first_sql(sql) if "```" in sql else sql
@@ -542,6 +538,13 @@ def dail_index(args):
         _DAIL[key] = DailIndex(args.dail_train, args.dail_train_tables, cdir, getattr(args, "dail_encoder", None),
                                also=(args.out,))
     return _DAIL[key]
+
+
+def prepare_dail(train, tables, cache_dir):
+    """Chuan bi truoc tap train DAIL-SQL (che ten schema + embedding, vai phut tren CPU) de luu cache; Buoc 4 cua notebook goi."""
+    import types
+    dail_index(types.SimpleNamespace(dail_train=train, dail_train_tables=tables, out=cache_dir, dail_cache=cache_dir))
+    print("[DAIL-SQL] tap train san sang (cache:", cache_dir + ")", flush=True)
 
 
 def dail_schema(db_path):

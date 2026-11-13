@@ -21,7 +21,7 @@ from vsql import report
 from vsql import views as V
 from vsql.db import run_sql, tables_in_sql
 from vsql.llm import OllamaLLM, OpenAICompatLLM
-from vsql.methods import (ABLATIONS, EXTRA, IMPL, MAIN, NOTES, DbCtx, add_stage_info, load_tables_json, run_item,
+from vsql.methods import (ABLATIONS, EXTRA, IMPL, MAIN, NOTES, DbCtx, set_vsql_views, add_stage_info, load_tables_json, run_item,
                           score, score_stage1)
 
 
@@ -56,6 +56,8 @@ def parse_args(argv=None):
     a.add_argument("--samples", type=int, default=3, help="so gia tri mau moi cot trong prompt (V-SQL+)")
     a.add_argument("--vsql-evidence", default="query", choices=["query", "none"],
                    help="V-SQL: noi evidence vao {query} cua Hinh 4/5 (template giu nguyen) hoac khong dung evidence")
+    a.add_argument("--vsql-views", default="oracle", choices=["oracle", "all"],
+                   help="V-SQL: D' = view co bang goc trong SQL dap an (oracle, mac dinh) hoac moi view cua CSDL (all)")
     a.add_argument("--no-infer-fk", action="store_true", help="khong suy them khoa ngoai (debit_card thieu khai bao)")
     # view
     a.add_argument("--depth", type=int, default=2)
@@ -242,6 +244,7 @@ def split_stale(out, m):
 
 def main(argv=None, llm=None):
     args = parse_args(argv)
+    set_vsql_views(args.vsql_views)
     out = Path(args.out)
     (out / "views").mkdir(parents=True, exist_ok=True)
     data = load_data(args)

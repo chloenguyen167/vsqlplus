@@ -190,7 +190,7 @@ got = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().s
        for m in ["vsql", "vsqlplus", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb",
                  "vsqlplus_det"]}
 assert all(len(r) == N for r in got.values()), {m: len(r) for m, r in got.items()}
-assert all(r["impl"] == 5 for r in got["vsql"]) and got["vsqlplus"][0]["impl"] == 2
+assert all(r["impl"] == 6 for r in got["vsql"]) and got["vsqlplus"][0]["impl"] == 2   # vsql mac dinh --vsql-views oracle
 ex = {m: sum(r["correct"] for r in rs) for m, rs in got.items()}
 assert ex["vsql"] == N - 1, ex                   # sai: ao giac kieu Table 1 cua paper o giai doan 2
 assert ex["vsqlplus"] == N and ex["vsqlplus_det"] == N and ex["vsqlplus_nofb"] == N - 1 and ex["vsqlplus_all"] == N - 1, ex
@@ -232,7 +232,7 @@ def _spy(prompt, meta=None, **o):  # noqa: E302
     return _orig(prompt, meta, **o)
 llm.chat = _spy  # noqa: E305
 run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out2), "--methods", "vsql",
-                  "--tables-json", str(tmp / "dev_tables.json"), "--no-embed"], llm=llm)
+                  "--tables-json", str(tmp / "dev_tables.json"), "--no-embed", "--vsql-views", "all"], llm=llm)
 s1 = [p for st, p in seen if st == "vsql_s1"]
 s2 = [p for st, p in seen if st == "vsql_s2"]
 assert len(s1) == N and all(p.startswith(P_VSQL_1.split("{relevant_db_schema}")[0]) for p in s1)  # template Hinh 4; cham lai du N cau
@@ -253,6 +253,27 @@ assert (out2 / "views" / "superhero.oracle.sql").exists() and (out2 / "old_predi
 new = [json.loads(l) for l in (out2 / "predictions_vsql.jsonl").read_text().splitlines()]
 assert len(new) == N and all(r["impl"] == 5 and r["calls"] == 2 for r in new)
 assert sum(r["correct"] for r in new) == N - 1                                  # cau ao giac Table 1 o gd2
+# 10b. --vsql-views oracle (mac dinh): prompt Hinh 4 chi co view co bang goc trong SQL dap an + bang D' ma dap an dung;
+# ban ghi impl 5 (all) trong out2 bi tach ra khi chay lai voi oracle
+from vsql.db import tables_in_sql as _tis  # noqa: E402
+seen3 = []
+def _spy3(prompt, meta=None, **o):  # noqa: E302
+    seen3.append((meta["qid"], meta["stage"], prompt))
+    return _orig(prompt, meta, **o)
+llm.chat = _spy3  # noqa: E305
+run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out2), "--methods", "vsql",
+                  "--tables-json", str(tmp / "dev_tables.json"), "--no-embed"], llm=llm)
+s1o = [(u, p) for u, st, p in seen3 if st == "vsql_s1"]
+assert len(s1o) == N and (out2 / "old_predictions_vsql_2.jsonl").exists()
+for u, p in s1o:
+    gt = _tis(ITEMS[u % len(ITEMS)]["gold"], s)
+    shown_v = set(re.findall(r"^# view: (\S+)", p, re.M))
+    shown_t = set(re.findall(r"^# table: `?([^`\n]+)`?", p, re.M))
+    assert shown_v == {v.name for v in oracle if v.base in gt}, (u, shown_v, gt)
+    assert shown_t <= gt and gt <= shown_t.union(*[v.source_tables() for v in oracle if v.name in shown_v]), (u, shown_t, gt)
+new3 = [json.loads(l) for l in (out2 / "predictions_vsql.jsonl").read_text().splitlines()]
+assert all(r["impl"] == 6 and r["coverage"] == 1.0 for r in new3)
+assert "D' = ORACLE" in (out2 / "summary.md").read_text()
 summary = (out2 / "summary.md").read_text()
 assert f"So cau hoi chung cho moi cau hinh: **{N}**" in summary
 assert "## 5. Tach giai doan" in summary and "### Theo so bang trong SQL dap an" in summary
@@ -263,7 +284,7 @@ from vsql import din_prompts as DP  # noqa: E402
 assert DP.HUMAN_EASY_CLASS_TEMPLATE.rstrip().endswith("SQL:") and not hasattr(DP, "SYSTEM_SELF_CORRECTION_PROMPT")
 assert B._din_links('...\nSchema_links: [superhero.id, publisher.publisher_name]') == ["superhero.id", "publisher.publisher_name"]
 assert B._din_label('So ... "NON-NESTED".\nLabel: "NON-NESTED"') == ("NON-NESTED", [])
-# DIN-SQL: mo hinh nho khong viet "SQL:" -> van lay duoc SQL (13/11: 73/200 cau bi ghi placeholder); khong co SQL -> placeholder
+# DIN-SQL nhu ban goc: chi doc phan sau "SQL:"; khong co "SQL:" -> placeholder (ke ca khi tra loi co SELECT)
 class _Ask:
     def __init__(self, outs):
         self.outs = list(outs)
@@ -273,7 +294,7 @@ class _Ask:
 _ctx = type("C", (), {"lazy": lambda self, k, fn: "", "path": "x"})()
 _args = type("A", (), {"evidence": True})()
 _it = dict(question="q", evidence="")
-for _out, want in [("```sql\nSELECT 1 FROM t;\n```", "SELECT 1 FROM t;"), ("SELECT MAX(a) FROM t", "SELECT MAX(a) FROM t"),
+for _out, want in [("```sql\nSELECT 1 FROM t;\n```", "SELECT * FROM table"), ("SELECT MAX(a) FROM t", "SELECT * FROM table"),
                   ("Let's think.\nSQL: SELECT 2", "SELECT 2"), ("I cannot answer", "SELECT * FROM table")]:
     got_din = B.run_din(_it, _ctx, _Ask(['Schema_links: [t.a]', 'Label: "EASY"', _out]), {}, _args)
     assert got_din.rstrip(";") == want.rstrip(";"), (_out, got_din)
