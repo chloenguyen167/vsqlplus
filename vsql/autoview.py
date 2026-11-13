@@ -13,6 +13,7 @@ Dam bao dung dan:
   * moi cot cua view nho nguon (bang, cot) -> mo ta cot, gia tri mau, va viet lai tat dinh view -> bang goc.
 """
 import re
+import sqlite3
 
 from . import views as V
 from .db import qi, tables_in_sql, _show
@@ -73,7 +74,22 @@ class _Builder:
         return a
 
 
-def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", lookup_cols=4, paper=False):
+def _same_parent_row(schema, table, fk1, fk2, tol=0.01):
+    """Hai khoa ngoai cua `table` toi CUNG mot bang cha co tro toi cung mot dong cha khong (vd Player_Attributes.player_api_id va
+    .player_fifa_api_id deu la mot cau thu; khac voi home_team/away_team hay eye_colour/hair_colour)."""
+    p = fk1.ref_table
+    on = lambda fk, a: " AND ".join(f"t.{qi(c)} = {a}.{qi(r)}" for c, r in zip(fk.cols, fk.ref_cols))
+    sql = (f"SELECT COUNT(*), SUM(a.rowid IS NOT b.rowid) FROM {qi(table)} t LEFT JOIN {qi(p)} a ON {on(fk1, 'a')} "
+           f"LEFT JOIN {qi(p)} b ON {on(fk2, 'b')}")
+    try:
+        with sqlite3.connect(f"file:{schema.path}?mode=ro", uri=True) as con:
+            n, diff = con.execute(sql).fetchone()
+    except sqlite3.Error:
+        return False
+    return bool(n) and (diff or 0) <= tol * n
+
+
+def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", lookup_cols=4, paper=False, gold_text=""):
     """View N-1 cho bang `base`; allowed: chi noi toi cac bang trong tap nay (None = moi bang).
     Tu muc noi thu 2, view tu dong chi noi bang tra cuu co <= lookup_cols cot (vd colour, gender)."""
     b = _Builder(schema, base, "v_" + base, origin, paper)
@@ -84,6 +100,13 @@ def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", 
         if paper:                                   # Hinh 3: noi theo thu tu cot khoa ngoai trong bang
             order = [c.name for c in schema.tables[table].columns]
             fks.sort(key=lambda fk: order.index(fk.cols[0]) if fk.cols[0] in order else len(order))
+            # nguoi thiet ke view chi noi mot bang cha MOT lan khi hai khoa ngoai cung chi mot dong cha (Player qua
+            # player_api_id / player_fifa_api_id); giu khoa duoc SQL dap an dung nhieu hon
+            used = lambda fk: len(re.findall(r"\b%s\b" % re.escape(fk.cols[0].lower()), gold_text))
+            for fk in sorted(fks, key=lambda fk: -used(fk)):
+                if fk in fks:
+                    fks = [g for g in fks if g is fk or g.ref_table != fk.ref_table
+                           or not _same_parent_row(schema, table, fk, g)]
         per_parent = {}
         for fk in fks:
             per_parent[fk.ref_table] = per_parent.get(fk.ref_table, 0) + 1
@@ -112,13 +135,10 @@ def build_view(schema, base, depth=2, allowed=None, max_cols=60, origin="auto", 
         keep_pk = set(schema.tables[base].pk)
         out = []
 
-        def lookup(j):          # nhu moi truong hop cua Hinh 3: <bang>.<x>_id -> <bang tra cuu>.id, bang tra cuu = id + 1 cot gia tri
-            return len(j.on) == 1 and j.on[0][1].lower() == "id" and len(schema.tables[j.table].columns) == 2
-
         def emit(alias):
             for c in [c for c in b.v.cols if c.alias == alias]:
                 js = [j for j in b.v.joins if j.parent == alias and j.on[0][0] == c.col]
-                swapped = any(j.parent == alias and c.col in [p for p, _ in j.on] and lookup(j) for j in b.v.joins)
+                swapped = any(j.parent == alias and c.col in [p for p, _ in j.on] and V.is_lookup(schema, j) for j in b.v.joins)
                 if not swapped or (alias == base and c.col in keep_pk):
                     out.append(c)
                 for j in js:
@@ -140,6 +160,7 @@ def oracle_views(schema, gold_sqls, max_cols=10 ** 6):
     Kieu Hinh 3: alias = ten bang (bang noi nhieu lan nhu colour moi dung ten vai tro), noi theo thu tu cot khoa ngoai,
     cot id khoa ngoai toi bang tra cuu duoc thay tai cho bang gia tri (v_superhero: dung 12 cot, dung thu tu Hinh 3)."""
     allowed = {}
+    gold_text = " ".join(gold_sqls).lower()
     for sql in gold_sqls:
         S = tables_in_sql(sql, schema)
         if len(S) < 2:
@@ -149,7 +170,8 @@ def oracle_views(schema, gold_sqls, max_cols=10 ** 6):
             allowed.setdefault(roots[0], set()).update(S)
     out = []
     for root, S in sorted(allowed.items()):
-        v = build_view(schema, root, depth=len(S), allowed=S, max_cols=max_cols, origin="oracle", paper=True)
+        v = build_view(schema, root, depth=len(S), allowed=S, max_cols=max_cols, origin="oracle", paper=True,
+                       gold_text=gold_text)
         if v:
             out.append(v)
     return out

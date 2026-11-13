@@ -127,6 +127,21 @@ Ngoài ra, prompt V-SQL dài (trung bình 8.809 token, 7,2 đối tượng schem
 Hai lần chạy TA-SQL trên cùng 200 câu, cùng model cho 36,0% và 33,0%, nên chênh lệch dưới khoảng 3–5 điểm trên mẫu 200 câu chưa
 đáng tin.
 
+### 2.1c Rà soát lần chạy `cmp_qwen35_4b_d2025_mau200` (vsql impl 4: 22,0%; DIN 29,5; DAIL 35,5; TA 33,0)
+
+- **D′ ẩn nhầm bảng thực thể.** Bản impl 4 ẩn mọi bảng đã nối vào view, kể cả `Patient`, `cards`, `schools`, `users`,
+  `Player`, `drivers`, `customers`... Hình 1(A)/Hình 3 chỉ cho thấy bảng tra cứu (`colour`, `race`, `gender`: `id` + một cột
+  giá trị) biến mất. 22/200 câu chỉ cần đúng một bảng bị ẩn: vsql đúng 3 (DAIL 9, TA 7). Sửa (impl 5): chỉ ẩn bảng gốc của
+  view và bảng tra cứu `id` + 1 cột đã được view thay trọn; bảng thực thể hiện dạng bảng bên cạnh view.
+- **Một bảng cha nối hai lần.** `v_Player_Attributes` nối `Player` qua cả `player_api_id` lẫn `player_fifa_api_id` (cùng một
+  cầu thủ, 212/183978 dòng lệch), sinh cột `player_fifa_api_birthday`, `player_api_player_name`. Sửa: hai khoá ngoại cùng trỏ
+  một dòng cha (kiểm bằng dữ liệu, lệch <= 1%) thì chỉ nối một lần theo khoá mà SQL đáp án dùng nhiều hơn.
+- **Giai đoạn 2 (Hình 5) là chỗ mất điểm chính.** Giai đoạn 1 đúng 57/200 (28,5%), sau Hình 5 còn 44 (sửa 12, làm hỏng 25;
+  17 câu hỏng là `no such column`): model 4B chỉ xoá tiền tố `v_` mà không thêm JOIN (`v_superhero.race` -> `superhero.race`).
+  Prompt đúng Hình 5; đây là giới hạn của phương pháp với model nhỏ, không sửa trong `vsql` (sửa = giải mã tất định của
+  V-SQL+). Chỉ chỉnh một điểm theo mục 4.5: "relevant table schemas" chỉ gồm bảng mà dummy SQL thực sự dùng cột (ví dụ của
+  paper chọn gender, colour, publisher, không có race/alignment), trước đây đưa mọi bảng của view.
+
 ### 2.2 TA-SQL (`tasql`) — baseline của paper
 
 Cài theo mã chính thức https://github.com/quge2023/TA-SQL (`src/modules.py`, `src/prompt_bank.py`):

@@ -68,6 +68,11 @@ oracle = V.validate(s, A.oracle_views(s, [it["gold"] for it in ITEMS]))
 assert oracle and all(v.row_preserving and v.verified == "rows_equal" for v in oracle), [(v.name, v.verified) for v in oracle]
 assert "publisher" not in V.leftover_tables(s, oracle) and "superhero" not in V.leftover_tables(s, oracle)
 sh = {v.name: v for v in oracle}["v_superhero"]
+# giai doan 2 (muc 4.5): chi bang ma dummy SQL dung cot; bang thuc the (khong phai id + 1 cot gia tri) khong bi an khoi D'
+assert sh.tables_for({"publisher_name", "eye_colour"}) == {"superhero", "publisher", "colour"}, sh.tables_for({"publisher_name"})
+assert sh.tables_for(None) == sh.source_tables()
+_j = V.Join("x", "superhero", "hero_power", [("hero_id", "id")])
+assert not V.is_lookup(s, _j) and all(V.is_lookup(s, j) for j in sh.joins)
 nm = {c.name for c in sh.cols}
 assert not nm & {"eye_colour_id", "hair_colour_id", "skin_colour_id", "publisher_id"} and {"id", "eye_colour", "publisher_name"} <= nm, nm
 d3 = sh.ddl()                                # cach viet va thu tu cot nhu Hinh 3: gia tri thay ngay tai vi tri cot khoa ngoai
@@ -194,7 +199,7 @@ got = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().s
        for m in ["tasql", "vsql", "vsqlplus", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb",
                  "vsqlplus_det"]}
 assert all(len(r) == N for r in got.values()), {m: len(r) for m, r in got.items()}
-assert all(r["impl"] == 4 for r in got["vsql"]) and "impl" not in got["tasql"][0] and got["vsqlplus"][0]["impl"] == 2
+assert all(r["impl"] == 5 for r in got["vsql"]) and "impl" not in got["tasql"][0] and got["vsqlplus"][0]["impl"] == 2
 ex = {m: sum(r["correct"] for r in rs) for m, rs in got.items()}
 assert ex["tasql"] == N, ex
 assert ex["vsql"] == N - 1, ex                   # sai: ao giac kieu Table 1 cua paper o giai doan 2
@@ -251,7 +256,7 @@ p4 = next(p for p in s2 if "FROM publisher" in p)
 assert "# table: publisher" in p4 and "comply with the syntax of SQLite" in p4
 assert (out2 / "views" / "superhero.oracle.sql").exists() and (out2 / "old_predictions_vsql_1.jsonl").exists()
 new = [json.loads(l) for l in (out2 / "predictions_vsql.jsonl").read_text().splitlines()]
-assert len(new) == N and all(r["impl"] == 4 and r["calls"] == 2 for r in new)
+assert len(new) == N and all(r["impl"] == 5 and r["calls"] == 2 for r in new)
 assert sum(r["correct"] for r in new) == N - 1                                  # cau ao giac Table 1 o gd2
 summary = (out2 / "summary.md").read_text()
 assert f"So cau hoi chung cho moi cau hinh: **{N}**" in summary

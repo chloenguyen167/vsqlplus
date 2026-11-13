@@ -54,7 +54,7 @@ MAIN = ["tasql", "vsql", "vsqlplus"]                      # so sanh chinh: TA-SQ
 ABLATIONS = ["vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb", "vsqlplus_det"]
 # phien ban cai dat cua tung phuong phap (ghi vao moi ban ghi). Doi cach cai dat thi tang so: ban ghi cu trong thu muc ket qua
 # (vd predictions_vsql.jsonl cua ban V-SQL cu) bi tach ra old_predictions_*.jsonl va cham lai (cau tra loi LLM con trong cache).
-IMPL = {"vsql": 4, **{m: 2 for m in ["vsqlplus", "vsqlplus_fig4", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl",
+IMPL = {"vsql": 5, **{m: 2 for m in ["vsqlplus", "vsqlplus_fig4", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl",
                                      "vsqlplus_nofb"]}}       # 13/11: Hinh 4/5 chinh lai dung tung chu -> prompt gd2 doi
 
 # --------------------------------------------------------------------------- prompt
@@ -419,8 +419,10 @@ class Render6:
 
 
 def run_vsql(item, ctx, ask, rec, args):
-    """V-SQL: {relevant_db_schema} = D' cua CSDL = moi view (thiet ke theo JOIN dap an) + bang khong nam trong view nao, trinh
-    bay Bang 6 mo rong; prompt Hinh 4; giai doan 2 luon chay voi prompt Hinh 5. Khong co buoc truy hoi / chon view."""
+    """V-SQL: {relevant_db_schema} = D' cua CSDL = moi view (thiet ke theo JOIN dap an) + bang goc khong bi view thay the
+    (chi bang goc cua view va bang tra cuu id + 1 cot gia tri nhu colour/gender moi bien mat, Hinh 1(A)); trinh bay Bang 6 mo
+    rong; prompt Hinh 4; giai doan 2 luon chay voi prompt Hinh 5, "relevant table schemas" = bang ma dummy SQL dung cot (muc
+    4.5). Khong co buoc truy hoi / chon view."""
     views = ctx.oracle
     tabs = V.leftover_tables(ctx.schema, views)
     r6 = Render6(ctx, extended=True)
@@ -433,18 +435,22 @@ def run_vsql(item, ctx, ask, rec, args):
     # table schemas"
     direct = tables_in_sql(dummy, ctx.schema) if dummy else set()
     return restore(ctx, item, ask, rec, dummy, views, [t for t in ctx.schema.tables if t in direct], "vsql_s2", args, r6,
-                   always=True)
+                   always=True, narrow=True)
 
 
-def restore(ctx, item, ask, rec, dummy, views, tabs, stage, args, r6=None, always=False):
+def restore(ctx, item, ask, rec, dummy, views, tabs, stage, args, r6=None, always=False, narrow=False):
     """Giai doan 2 cua paper (Hinh 5): LLM khoi phuc dummy SQL tren view ve SQL tren bang goc.
     always=False (V-SQL+): dummy SQL khong dung view thi giu nguyen. always=True (V-SQL): luon goi Hinh 5 nhu paper (dummy SQL
-    khong duoc thuc thi; Hinh 5 con dua cu phap {db_type} va khoi dinh dang dau ra)."""
+    khong duoc thuc thi; Hinh 5 con dua cu phap {db_type} va khoi dinh dang dau ra).
+    narrow=True (V-SQL, muc 4.5): "relevant table schemas" chi gom bang ma dummy SQL thuc su dung cot qua quy tac anh xa cua
+    view (vi du cua paper: v_superhero voi eye/hair/skin colour, gender, publisher_name -> chon gender, colour, publisher;
+    khong co race, alignment), khong phai moi bang cua view."""
     used = [v for v in views if references(dummy, v.name)]
     rec["views_used"] = [v.name for v in used]
     if not dummy or not (used or always):
         return dummy                            # dummy SQL khong dung view -> da la SQL tren bang goc
-    tset = set().union(*[v.source_tables() for v in used]) | {t for t in tabs if references(dummy, t)}
+    tset = set().union(*[v.tables_for(V.needed_columns(dummy, v) if narrow else None) for v in used])
+    tset |= {t for t in tabs if references(dummy, t)}
     p2 = P_VSQL_2.format(db_type="SQLite", view_schemas="\n\n".join(v.ddl() for v in used), query=vsql_query(item, args),
                          dummy_sql=dummy,
                          table_schemas="\n\n".join((r6 or Render6(ctx)).table(t) for t in ctx.schema.tables if t in tset))

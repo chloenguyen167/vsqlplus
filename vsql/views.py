@@ -37,6 +37,18 @@ class View:
     def source_tables(self):
         return {self.base} | {j.table for j in self.joins}
 
+    def tables_for(self, needed=None):
+        """Bang goc ma cac cot `needed` (ten cot view, lower; None = tat ca) lay tu do, kem cac bang trung gian tren duong noi."""
+        if needed is None:
+            return self.source_tables()
+        by = {j.alias: j for j in self.joins}
+        out = {self.base}
+        for a in {c.alias for c in self.cols if c.name.lower() in needed}:
+            while a in by:
+                out.add(by[a].table)
+                a = by[a].parent
+        return out
+
     def select_sql(self, needed=None):
         """needed: tap ten cot (lower) cua bang noi can giu; None = giu tat ca."""
         cols = [c for c in self.cols if needed is None or c.alias == self.base or c.name.lower() in needed]
@@ -108,10 +120,20 @@ def validate(schema, views, timeout=60):
     return views
 
 
+def is_lookup(schema, j):
+    """Phep noi toi BANG TRA CUU nhu moi truong hop cua Hinh 3: <bang>.<x>_id -> <bang tra cuu>.id, bang tra cuu = id + mot cot
+    gia tri (gender, colour, race, publisher...). View da chua tron gia tri cua bang nay."""
+    return len(j.on) == 1 and j.on[0][1].lower() == "id" and len(schema.tables[j.table].columns) == 2
+
+
 def leftover_tables(schema, views):
-    """Bang khong nam trong view nao (D' cua paper = cac view + nhung bang nay)."""
-    used = set().union(*[v.source_tables() for v in views]) if views else set()
-    return [t for t in schema.tables if t not in used]
+    """Bang goc van nam trong D' ben canh cac view: moi bang KHONG phai bang goc cua mot view va KHONG phai bang tra cuu da
+    duoc view thay tron (Hinh 1(A)/Hinh 3: chi colour, race, gender... bien mat). Bang thuc the duoc noi vao view (Patient,
+    cards, users, customers...) van phai hien: cau hoi chi ve chinh bang do (dem benh nhan, liet ke la bai) khong the tra
+    loi dung qua view cua bang con (so dong khac). 13/11: an ca cac bang nay -> 22/200 cau chi can mot bang bi an, dung 3."""
+    bases = {v.base for v in views}
+    absorbed = {j.table for v in views for j in v.joins if is_lookup(schema, j)}
+    return [t for t in schema.tables if t not in bases and t not in absorbed]
 
 
 # --------------------------------------------------------------------------- giai ma tat dinh view -> bang goc
