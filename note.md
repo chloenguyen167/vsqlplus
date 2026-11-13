@@ -1,4 +1,6 @@
 # 2026-11-12
+
+> **Ghi chú (13/11):** TA-SQL đã bị gỡ khỏi mã nguồn; các phần nói về TA-SQL dưới đây là ghi chú lịch sử.
 thể hiện trực quan qua notebook:
 (chạy mẫu nhỏ trc: 3-5 câu)
 - input,output của mỗi lần gọi llm (Ta,din,dail,vsql,vsql+)

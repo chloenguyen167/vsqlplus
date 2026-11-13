@@ -45,7 +45,7 @@ class Descriptions:
                 self.cols[(t.lower(), col.name.lower())] = dict(
                     full=_clean(cn), desc=_clean(row.get("column_description")),
                     values=_clean(row.get("value_description")), fmt=_clean(row.get("data_format")),
-                    # nguyen van nhu ma TA-SQL doc (dung cho baseline TA-SQL)
+                    # nguyen van cua file mo ta cot BIRD (dung cho Bang 6 mo rong)
                     raw=dict(name=cn if cn.strip() else ocn, desc=(row.get("column_description") or "").strip(),
                              fmt=(row.get("data_format") or "").strip(),
                              values=(row.get("value_description") or "").strip()))

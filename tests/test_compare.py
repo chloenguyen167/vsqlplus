@@ -1,4 +1,4 @@
-"""Kiem thu TA-SQL / V-SQL / V-SQL+ / DIN-SQL / DAIL-SQL voi LLM gia lap (khong can Ollama, khong can BIRD).
+"""Kiem thu V-SQL / V-SQL+ / DIN-SQL / DAIL-SQL voi LLM gia lap (khong can Ollama, khong can BIRD).
 Chay: python tests/test_compare.py"""
 import json
 import re
@@ -17,7 +17,7 @@ from vsql import views as V                                         # noqa: E402
 from vsql.db import Schema, run_sql                                 # noqa: E402
 from vsql.linking import ValueIndex, link_values                    # noqa: E402
 from vsql.llm import extract_sql                                    # noqa: E402
-from vsql.methods import Render6, _fallback_tables, _tasql_sql, compile_error, first_statement  # noqa: E402
+from vsql.methods import Render6, _fallback_tables, compile_error, first_statement  # noqa: E402
 import run_compare                                                  # noqa: E402
 
 tmp = Path(tempfile.mkdtemp())
@@ -103,13 +103,11 @@ assert compile_error(str(db), "SELECT COUNT(*) FROM superhero") is None
 # 6. tien ich hau xu ly
 assert first_statement("SELECT 1; SELECT 2") == "SELECT 1"
 assert first_statement("SELECT ';' AS x;") == "SELECT ';' AS x"
-assert _tasql_sql('COUNT(*) FROM superhero"\n\nThis query counts') == "SELECT COUNT(*) FROM superhero"
-assert _tasql_sql("```sql\nSELECT COUNT(*) FROM superhero;\n```") == "SELECT COUNT(*) FROM superhero"
 assert extract_sql("To answer with SQL we use:\nSELECT a FROM t") == "SELECT a FROM t"       # khong lay chu "with" van xuoi
 assert extract_sql("To find the league with the most draws, Select all matches ...") == ""   # van xuoi, khong co SQL
 assert extract_sql("```sql\nwith x as (select 1) select * from x;\n```") == "with x as (select 1) select * from x"
 assert extract_sql("Answer:\n  select a\nfrom t") == "select a\nfrom t"
-# Bang 6 mo rong (V-SQL): ten cot can quote ghi kem backtick nhu TA-SQL
+# Bang 6 mo rong (V-SQL): ten cot can quote ghi kem backtick
 _C = type("C", (), {"desc": type("D", (), {"get": lambda self, t, c: {}})(), "schema": type("S", (), {"samples": {}})(),
                     "lazy": lambda self, k, fn: None})
 rows6 = Render6(_C(), extended=True)._rows([("FRPM Count (K-12)", "frpm", "FRPM Count (K-12)", "REAL"), ("id", "t", "id", "")])
@@ -163,14 +161,7 @@ class ScriptLLM:
         self.stages[st.rstrip("0123456789")] += 1
         k = u % len(ITEMS)
         gold = ITEMS[k]["gold"]
-        if st == "tasl":
-            sql = gold[len("SELECT "):]
-        elif st == "talog_sr":
-            sql = "df1 = df.where(...)\nres = df1.select(...)"
-        elif st == "talog_sql":
-            sql = gold[len("SELECT "):] + '"'                 # viet tiep sau SQL = "SELECT, nhu GPT-4 trong ma goc
-            return {"text": sql, "prompt_tokens": 1, "completion_tokens": 1, "seconds": 0.0}
-        elif st == "vsql_s1":
+        if st == "vsql_s1":
             sql = PLUS[k]
         elif st == "vsql_s2":
             sql = ITEMS[k].get("s2", gold)
@@ -196,12 +187,11 @@ run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(o
                   "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
                   "--all-max-objects", "0", "--all-max-tokens", "0", "--k-cand", "6", "--n-samples", "3"], llm=llm)
 got = {m: [json.loads(l) for l in (out / f"predictions_{m}.jsonl").read_text().splitlines()]
-       for m in ["tasql", "vsql", "vsqlplus", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb",
+       for m in ["vsql", "vsqlplus", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb",
                  "vsqlplus_det"]}
 assert all(len(r) == N for r in got.values()), {m: len(r) for m, r in got.items()}
-assert all(r["impl"] == 5 for r in got["vsql"]) and "impl" not in got["tasql"][0] and got["vsqlplus"][0]["impl"] == 2
+assert all(r["impl"] == 5 for r in got["vsql"]) and got["vsqlplus"][0]["impl"] == 2
 ex = {m: sum(r["correct"] for r in rs) for m, rs in got.items()}
-assert ex["tasql"] == N, ex
 assert ex["vsql"] == N - 1, ex                   # sai: ao giac kieu Table 1 cua paper o giai doan 2
 assert ex["vsqlplus"] == N and ex["vsqlplus_det"] == N and ex["vsqlplus_nofb"] == N - 1 and ex["vsqlplus_all"] == N - 1, ex
 r3 = got["vsqlplus"][3]
@@ -209,15 +199,20 @@ assert r3["fallback"] and r3["fallback"][0]["added"] == ["attribute"], r3["fallb
 assert got["vsqlplus"][0]["vote"]["chosen"], got["vsqlplus"][0]
 assert got["vsqlplus_novote"][0].get("vote") is None and got["vsqlplus_all"][0]["all_in_prompt"]
 assert got["vsqlplus_det"][0]["calls"] == 4 and got["vsqlplus"][0]["views_used"]
-assert got["tasql"][0]["calls"] == 3 and got["vsql"][0]["calls"] == 2 and got["vsqlplus"][0]["calls"] == 5, \
-    (got["tasql"][0]["calls"], got["vsql"][0]["calls"], got["vsqlplus"][0]["calls"])
+assert got["vsql"][0]["calls"] == 2 and got["vsqlplus"][0]["calls"] == 5, (got["vsql"][0]["calls"], got["vsqlplus"][0]["calls"])
 import io, contextlib  # noqa: E402
 buf = io.StringIO()
 with contextlib.redirect_stdout(buf):                  # chay lai: da cham het, chi in cac dong kiem tra
-    run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "tasql,vsql",
+    run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "vsql,vsqlplus",
                       "--tables-json", str(tmp / "dev_tables.json"), "--no-embed"], llm=llm)
 o = buf.getvalue()
-assert f"{N} dong; {N} question_id khac nhau; {N} cau hoi" in o and f"[KIEM TRA] tasql: {N}/{N} dong da cham (DU)" in o, o[:600]
+assert f"{N} dong; {N} question_id khac nhau; {N} cau hoi" in o and f"[KIEM TRA] vsql: {N}/{N} dong da cham (DU)" in o, o[:600]
+try:                                                   # doi cai dat embedding trong thu muc da co ket qua V-SQL+ -> dung
+    run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "vsqlplus",
+                      "--tables-json", str(tmp / "dev_tables.json"), "--embed-model", "nomic-embed-text"], llm=llm)
+    raise AssertionError("phai dung khi doi embedding")
+except SystemExit as e:
+    assert "embedding" in str(e), e
 # 9. vsqlplus_fig4 (2 huong, cung template Hinh 4 + Bang 6 voi vsql)
 run_compare.main(["--data", str(data), "--db-root", str(db_root), "--out", str(out), "--methods", "vsqlplus_fig4",
                   "--tables-json", str(tmp / "dev_tables.json"), "--no-embed",
@@ -268,6 +263,20 @@ from vsql import din_prompts as DP  # noqa: E402
 assert DP.HUMAN_EASY_CLASS_TEMPLATE.rstrip().endswith("SQL:") and not hasattr(DP, "SYSTEM_SELF_CORRECTION_PROMPT")
 assert B._din_links('...\nSchema_links: [superhero.id, publisher.publisher_name]') == ["superhero.id", "publisher.publisher_name"]
 assert B._din_label('So ... "NON-NESTED".\nLabel: "NON-NESTED"') == ("NON-NESTED", [])
+# DIN-SQL: mo hinh nho khong viet "SQL:" -> van lay duoc SQL (13/11: 73/200 cau bi ghi placeholder); khong co SQL -> placeholder
+class _Ask:
+    def __init__(self, outs):
+        self.outs = list(outs)
+
+    def __call__(self, p, stage, **o):
+        return self.outs.pop(0)
+_ctx = type("C", (), {"lazy": lambda self, k, fn: "", "path": "x"})()
+_args = type("A", (), {"evidence": True})()
+_it = dict(question="q", evidence="")
+for _out, want in [("```sql\nSELECT 1 FROM t;\n```", "SELECT 1 FROM t;"), ("SELECT MAX(a) FROM t", "SELECT MAX(a) FROM t"),
+                  ("Let's think.\nSQL: SELECT 2", "SELECT 2"), ("I cannot answer", "SELECT * FROM table")]:
+    got_din = B.run_din(_it, _ctx, _Ask(['Schema_links: [t.a]', 'Label: "EASY"', _out]), {}, _args)
+    assert got_din.rstrip(";") == want.rstrip(";"), (_out, got_din)
 assert B.dail_post("```sql\nSELECT a FROM t;\n```") == "SELECT a FROM t" and B.dail_post("COUNT(*) FROM t /* x */") == "SELECT COUNT(*) FROM t "
 assert B.jaccard_similarity("select _ from _", "select _ from _") == 1.0
 din_seen = Counter()

@@ -127,7 +127,12 @@ def run_din(item, ctx, ask, rec, args):
     else:
         out = ask(DP.HUMAN_NESTED_CLASS_TEMPLATE.format(schema_links=links, sub_questions=subs, **kw), "din_nested",
                   system=DP.SYSTEM_NESTED_CLASS_TEMPLATE)
-    sql = _din_sql(_strip_think(out))
+    out = _strip_think(out)
+    sql = _din_sql(out)
+    if sql is None:
+        # ban goc doc phan sau "SQL:" (GPT-4 luon viet dung dinh dang nay). Mo hinh nho hay tra thang cau SELECT hoac khoi ```sql```
+        # khong co "SQL:": 13/11 dung 73/200 cau cua qwen3.5:4b bi ghi thanh placeholder du da co SQL -> lay SQL tu cau tra loi
+        sql = extract_sql(out) or None
     if sql is None:
         return "SELECT * FROM table"            # nhu ban goc: khong sinh duoc SQL -> placeholder
     sql = _first_sql(sql) if "```" in sql else sql
@@ -461,7 +466,7 @@ class DailIndex:
     """Tap vi du (train BIRD) + embedding cau hoi da che ten schema (all-mpnet-base-v2, tren CPU nhu ban goc)."""
     MODEL = "sentence-transformers/all-mpnet-base-v2"
 
-    def __init__(self, train_path, tables_path, cache_dir, encoder=None):
+    def __init__(self, train_path, tables_path, cache_dir, encoder=None, also=()):
         import numpy as np
         self.np = np
         raw = Path(train_path).read_bytes() + Path(tables_path).read_bytes()
@@ -469,7 +474,14 @@ class DailIndex:
         tables = {t["db_id"]: t for t in json.loads(Path(tables_path).read_text(encoding="utf-8"))}
         self.tok = Tokenizer()
         # che ten schema + khung SQL cua ~9.400 cau train mat vai phut -> luu lai trong thu muc ket qua
-        prep = Path(cache_dir) / f"dail_train_prep_{hashlib.md5(raw).hexdigest()[:10]}_{self.tok.name}.json"
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+
+        def find(name):             # cache chung (--dail-cache) truoc, roi thu muc ket qua cu (ban truoc luu o day)
+            for d in (cache_dir, *also):
+                if (Path(d) / name).exists():
+                    return Path(d) / name
+            return Path(cache_dir) / name
+        prep = find(f"dail_train_prep_{hashlib.md5(raw).hexdigest()[:10]}_{self.tok.name}.json")
         if prep.exists():
             self.train, masked = json.loads(prep.read_text(encoding="utf-8"))
         else:
@@ -483,7 +495,7 @@ class DailIndex:
             prep.write_text(json.dumps([self.train, masked], ensure_ascii=False), encoding="utf-8")
         self.encode = encoder or self._st_encoder()
         key = hashlib.md5(("\n".join(masked) + self.tok.name + self.MODEL).encode()).hexdigest()[:12]
-        cache = Path(cache_dir) / f"dail_train_emb_{key}.npy"
+        cache = find(f"dail_train_emb_{key}.npy")
         if cache.exists():
             self.emb = np.load(cache)
         else:
@@ -524,7 +536,11 @@ def dail_index(args):
     if key not in _DAIL:
         if not (args.dail_train and Path(args.dail_train).exists()):
             raise SystemExit("DAIL-SQL can tap train BIRD: --dail-train train.json --dail-train-tables train_tables.json")
-        _DAIL[key] = DailIndex(args.dail_train, args.dail_train_tables, args.out, getattr(args, "dail_encoder", None))
+        # cache tap train (che ten schema + embedding, vai phut) khong phu thuoc model / thu muc ket qua: dung chung cho buoc 8 (chay
+        # thu), moi model o buoc 9 va cac lan chay lai; mac dinh canh train.json
+        cdir = getattr(args, "dail_cache", "") or str(Path(args.dail_train).parent)
+        _DAIL[key] = DailIndex(args.dail_train, args.dail_train_tables, cdir, getattr(args, "dail_encoder", None),
+                               also=(args.out,))
     return _DAIL[key]
 
 

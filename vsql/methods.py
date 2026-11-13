@@ -1,8 +1,5 @@
 """Cac phuong phap so sanh tren cung bo du lieu, cung LLM, cung cach cham:
 
-  tasql     : TA-SQL (Qu et al., ACL Findings 2024) - baseline ma paper V-SQL so sanh. Cai lai dung ma nguon chinh thuc:
-              TASL (dummy SQL tren toan schema -> trich bang/cot) + TALOG (bieu dien ky hieu SR kieu pandas -> SQL).
-              Prompt chep nguyen van (vsql/tasql_prompts.py).
   vsql      : V-SQL tai hien (ban duy nhat), sat paper nhat co the:
               - view thiet ke tu cac phep JOIN cua SQL dap an (muc 6), kieu Hinh 3 (alias = ten bang, bo cot id khoa ngoai
                 da thay bang gia tri); D' = cac view + bang khong nam trong view nao (muc 4.1: D' thay cho D);
@@ -10,7 +7,7 @@
                 JOIN dap an cua chinh CSDL do; KHONG co buoc truy hoi / chon view nao);
               - giai doan 2: luon chay (paper mo ta khung 2 giai doan, dummy SQL khong duoc thuc thi), prompt Hinh 5
                 nguyen van ({db_type} = SQLite), bang lien quan theo dinh nghia view ma dummy SQL dung (muc 4.5).
-              Paper khong noi cach trinh bay schema trong prompt: Bang 6 them mo ta gia tri + gia tri mau (ngang TA-SQL),
+              Paper khong noi cach trinh bay schema trong prompt: Bang 6 them mo ta gia tri + gia tri mau,
               ten cot dac biet co backtick.
   vsqlplus  : cai tien (V-SQL+), ket hop 2 huong, giai doan 2 giu nguyen nhu paper:
               Huong 1 - sinh view tu dong tu khoa ngoai (chi noi N-1 khi khoa duoc tham chieu la duy nhat, kiem tra so dong,
@@ -29,7 +26,6 @@ from pathlib import Path
 
 from . import autoview as A
 from . import baselines as B
-from . import tasql_prompts as TP
 from . import views as V
 from .db import Schema, connect, qi, references, run_sql, tables_in_sql, classify_error
 from .linking import HybridIndex, ValueIndex, link_columns, link_values, rrf
@@ -37,7 +33,6 @@ from .llm import extract_sql
 from .meta import Descriptions, load_tables_json, table6_table, table6_view, table_ddl
 
 NOTES = {
-    "tasql": "TA-SQL (baseline cua paper): TASL dummy SQL + TALOG SR->SQL",
     "vsql": "V-SQL theo paper: view Hinh 3 theo JOIN dap an, D' = moi view cua CSDL, prompt Hinh 4 + Hinh 5",
     "vsqlplus": "V-SQL+ = huong 1 (sinh view tu dong) + huong 2 (chon view bang truy hoi lai); giai doan 2 nhu paper",
     "vsqlplus_all": "Chi huong 1: view tu dong, dua het view vao prompt (khong chon view)",
@@ -50,11 +45,11 @@ NOTES = {
     "dailsql": "DAIL-SQL (baseline Bang 3): schema CREATE TABLE + 7 vi du train BIRD chon 2 vong; 1 mau, khong bau chon nhu paper",
 }
 EXTRA = ["vsqlplus_fig4", "dinsql", "dailsql"]           # chay khi chon rieng (notebook: tick o tuong ung)
-MAIN = ["tasql", "vsql", "vsqlplus"]                      # so sanh chinh: TA-SQL (baseline cua paper), V-SQL, V-SQL+
+MAIN = ["vsql", "vsqlplus"]                               # so sanh chinh: V-SQL, V-SQL+ (DIN-SQL, DAIL-SQL: tick rieng)
 ABLATIONS = ["vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb", "vsqlplus_det"]
 # phien ban cai dat cua tung phuong phap (ghi vao moi ban ghi). Doi cach cai dat thi tang so: ban ghi cu trong thu muc ket qua
 # (vd predictions_vsql.jsonl cua ban V-SQL cu) bi tach ra old_predictions_*.jsonl va cham lai (cau tra loi LLM con trong cache).
-IMPL = {"vsql": 5, **{m: 2 for m in ["vsqlplus", "vsqlplus_fig4", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl",
+IMPL = {"vsql": 5, "dinsql": 2, **{m: 2 for m in ["vsqlplus", "vsqlplus_fig4", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl",
                                      "vsqlplus_nofb"]}}       # 13/11: Hinh 4/5 chinh lai dung tung chu -> prompt gd2 doi
 
 # --------------------------------------------------------------------------- prompt
@@ -158,14 +153,13 @@ def compile_error(path, sql):
 
 # --------------------------------------------------------------------------- ngu canh moi DB
 class DbCtx:
-    def __init__(self, db_id, db_dir, gold_sqls, args, tables_json=None, tasql_meaning=None):
+    def __init__(self, db_id, db_dir, gold_sqls, args, tables_json=None):
         self.db_id, self.args = db_id, args
         self.path = str(Path(db_dir) / f"{db_id}.sqlite")
         self.schema = s = Schema(db_id, self.path, args.samples, infer_fk=not args.no_infer_fk)
         self.desc = Descriptions(db_dir, s)
         self.gold_sqls = gold_sqls
         self.tj = (tables_json or {}).get(db_id)
-        self.tasql_meaning = tasql_meaning
         self._cache = {}
 
     def lazy(self, key, fn):
@@ -231,45 +225,10 @@ class Asker:
         return [r["text"] for r in rs]
 
 
-# --------------------------------------------------------------------------- TA-SQL
-def _tasql_schema_dicts(ctx):
-    """database_schema (TASL), pk/fk (dev_tables.json) theo dung dinh dang cua ma TA-SQL."""
-    tj = ctx.tj
-    tn, cn = tj["table_names_original"], tj["column_names_original"]
-    pk, fk = {}, {}
-    for idx in tj["primary_keys"]:
-        if isinstance(idx, int):
-            pk[str(tn[cn[idx][0]])] = [cn[idx][-1]]
-        else:
-            pk[str(tn[cn[idx[0]][0]])] = [cn[i][-1] for i in idx]
-    for a, b in tj["foreign_keys"]:
-        fk[f"{tn[cn[a][0]]}.{cn[a][-1]}"] = f"{tn[cn[b][0]]}.{cn[b][-1]}"
-    schema_for_db = {t: {} for t in tn}
-    meaning = ctx.tasql_meaning
-    if meaning:
-        for key, value in meaning.items():
-            db, otn, ocn = key.split("|")
-            if db == ctx.db_id and otn in schema_for_db:
-                schema_for_db[otn][ocn] = value.replace("#", "").replace("\n", ",  ")
-    else:                                   # khong co column_meaning.json: dung mo ta CSV cua BIRD
-        for ti, c in cn[1:]:
-            t = tn[ti]
-            m = ctx.desc.get(t, c).get("raw", {})
-            schema_for_db[t][c] = ", ".join(x for x in (m.get("name"), m.get("desc"), m.get("values")) if x)
-    p = "{\n "
-    for table_name, cols in schema_for_db.items():
-        p += f"{table_name}:\n  " + "{\n\t"
-        for c, txt in cols.items():
-            p += f"{c}: {txt}" + "\n\t"
-            p += "\n\t"
-        p += "}\n "
-    p += "}"
-    return p, pk, fk
-
-
-def _tasql_value_prompt(ctx, t, c, fmt):
-    """Nhu TALOG._get_info_from_csv: cot text/date -> 'all possible values are [...]' (<=10) hoac 3 vi du.
-    (Ban goc dung ORDER BY RANDOM(); o day lay theo thu tu tu nhien de ket qua tai lap duoc.)"""
+# --------------------------------------------------------------------------- tien ich schema
+def _value_prompt(ctx, t, c, fmt):
+    """Cot text/date -> 'all possible values are [...]' (<=10) hoac 3 vi du.
+    (Lay theo thu tu tu nhien de ket qua tai lap duoc.)"""
     if fmt not in ("text", "date", "datetime"):
         return None
     rows, err, _ = run_sql(ctx.path, f"SELECT DISTINCT {qi(c)} FROM {qi(t)} WHERE {qi(c)} IS NOT NULL LIMIT 11", 30)
@@ -279,85 +238,6 @@ def _tasql_value_prompt(ctx, t, c, fmt):
     if len(vals) <= 10:
         return f"all possible values are {vals}"
     return f"example values are {vals[:3]}"
-
-
-def _tasql_column_description(ctx, sl):
-    """TALOG.generate_schema_prompt"""
-    items = {}
-    for otn, ocn in sl:
-        raw = ctx.desc.get(otn, ocn).get("raw", {})
-        column_name, column_description = raw.get("name", ocn), raw.get("desc", "")
-        column_type, value_description = raw.get("fmt", ""), raw.get("values", "")
-        vp = ctx.lazy(("tavp", otn, ocn), lambda: _tasql_value_prompt(ctx, otn, ocn, column_type))
-        tmp = f"{column_type}, the full column name is {column_name}"
-        if column_description not in ("", " ", None):
-            tmp += f", column description is {column_description.replace(chr(10), ' ')}"
-        if value_description not in ("", " ", None):
-            tmp += f", value description is {value_description.replace(chr(10), ' ')}"
-        if vp:
-            tmp += f", {vp}"
-        a = f"`{otn}`" if " " in otn else otn
-        b = f"`{ocn}`" if " " in ocn else ocn
-        items[f"{a}.{b}"] = tmp
-    p = "{\n\t"
-    for k, v in items.items():
-        p += f"{k}: {v}\n"
-        p += "\n\t"
-    p += "}"
-    return p
-
-
-def _strip_think(text):
-    return re.sub(r"<think>.*?</think>", "", text or "", flags=re.S).strip()
-
-
-def _tasql_sql(text):
-    """Hau xu ly cau tra loi cua sr2sql. Ban goc: 'SELECT ' + tra_loi (GPT-4 viet tiep sau `SQL = "SELECT`).
-    Mo hinh chat (qwen) hay tra ca khoi ```sql``` hoac viet lai tu SELECT -> chap nhan ca hai dang."""
-    t = _strip_think(text)
-    m = re.findall(r"```(?:sql|sqlite)?\s*(.*?)```", t, flags=re.S | re.I)
-    if m:
-        t = m[-1]
-    t = t.strip().strip('"').strip()
-    if not re.match(r"(SELECT|WITH)\b", t, re.I):
-        t = "SELECT " + t
-    t = t.split('"\n')[0] if t.count('"') % 2 else t           # dau " dong chuoi SQL = "SELECT ... "
-    return first_statement(t.rstrip('"').strip())
-
-
-def run_tasql(item, ctx, ask, rec, args):
-    if ctx.tj is None:
-        raise SystemExit("TA-SQL can dev_tables.json (--tables-json)")
-    q, e = item["question"], item.get("evidence") or ""
-    if not args.evidence:
-        e = ""
-    database_schema, pk, fk = ctx.lazy("taschema", lambda: _tasql_schema_dicts(ctx))
-    sys_msg = "You are an AI assistant that helps people find information."
-    # ---- TASL: dummy SQL tren toan schema, roi trich thuc the schema xuat hien trong dummy SQL
-    p1 = TP.dummy_sql_prompt.format(database_schema=database_schema, primary_key_dic=pk, foreign_key_dic=fk,
-                                    question_prompt=q, evidence=e)
-    dummy = _strip_think(ask(p1, "tasl", system=sys_msg, stop=["return SQL"]))
-    rec["dummy_sql"] = dummy
-    tn = ctx.tj["table_names_original"]
-    cols = [[tn[int(ti)], c] for ti, c in ctx.tj["column_names_original"][1:]]
-    ftabs = {t for t in tn if t in dummy}                       # so khop chuoi con, nhu ma goc
-    fcols = {c for _, c in cols if c in dummy}
-    sl = [tc for tc in cols if tc[1] in fcols and tc[0] in ftabs]   # giu thu tu schema (ban goc: thu tu set, khong tai lap)
-    rec["schema_tables"] = sorted({t for t, _ in sl})
-    rec["n_objects"] = len(rec["schema_tables"])
-    # ---- TALOG: SR kieu pandas -> SQL
-    processed = []
-    for t, c in sl:
-        processed.append(f"{f'`{t}`' if ' ' in t else t}.{f'`{c}`' if ' ' in c else c}")
-    processed = f"[{', '.join(processed)}]".replace("'", "")
-    coldesc = _tasql_column_description(ctx, sl)
-    p2 = TP.generate_sr.format(sr_example=TP.sr_examples, question=q, schema=processed, column_description=coldesc,
-                               evidence=e).strip("\n")
-    sr = _strip_think(ask(p2, "talog_sr", system=sys_msg)).replace('"', "")
-    rec["sr"] = sr
-    p3 = TP.sr2sql.format(question=q, schema=[".".join(t) for t in sl], evidence=e, column_description=coldesc,
-                          SR=sr, foreign_key_dic=fk).strip("\n")
-    return _tasql_sql(ask(p3, "talog_sql", system=sys_msg))
 
 
 # --------------------------------------------------------------------------- V-SQL (paper)
@@ -371,16 +251,16 @@ def vsql_query(item, args):
 
 class Render6:
     """Trinh bay schema kieu Bang 6 cua paper. extended=True (vsql, vsqlplus_fig4): them 2 cot `value_description` va
-    `example_values` - paper khong quy dinh cach trinh bay schema trong prompt; them de ngang muc thong tin TA-SQL nhan duoc
-    (TA-SQL dua mo ta gia tri va "all possible values are [...]" / "example values are [...]"). Ten cot can quote (co dau
-    cach, ngoac, dau tru: `FRPM Count (K-12)`, `T-CHO`) ghi kem backtick nhu TA-SQL, de LLM khong tu che ten (FRPM_Count_K_12)."""
+    `example_values` - paper khong quy dinh cach trinh bay schema trong prompt; them mo ta gia tri
+    va "all possible values are [...]" / "example values are [...]". Ten cot can quote (co dau
+    cach, ngoac, dau tru: `FRPM Count (K-12)`, `T-CHO`) ghi kem backtick, de LLM khong tu che ten (FRPM_Count_K_12)."""
 
     def __init__(self, ctx, extended=False):
         self.ctx, self.ext = ctx, extended
 
     def _examples(self, t, c):
         raw = self.ctx.desc.get(t, c).get("raw", {})
-        vp = self.ctx.lazy(("tavp", t, c), lambda: _tasql_value_prompt(self.ctx, t, c, raw.get("fmt", "")))
+        vp = self.ctx.lazy(("valp", t, c), lambda: _value_prompt(self.ctx, t, c, raw.get("fmt", "")))
         if vp:
             return vp
         ex = self.ctx.schema.samples.get((t, c), [])[:3]
@@ -697,9 +577,7 @@ def run_item(method, item, ctx, llm, args):
     if method in IMPL:
         rec["impl"] = IMPL[method]
     ask = Asker(llm, rec, item["uid"])
-    if method == "tasql":
-        final = run_tasql(item, ctx, ask, rec, args)
-    elif method == "vsql":
+    if method == "vsql":
         final = run_vsql(item, ctx, ask, rec, args)
     elif method == "dinsql":
         final = B.run_din(item, ctx, ask, rec, args)
@@ -716,9 +594,7 @@ def run_item(method, item, ctx, llm, args):
 
 
 def stage_views(method, ctx):
-    """View ma SQL nhap (giai doan 1) cua phuong phap dung; None = khong co view (TA-SQL)."""
-    if method == "tasql":
-        return None
+    """View ma SQL nhap (giai doan 1) cua phuong phap dung."""
     if method.startswith("vsqlplus"):
         return ctx.auto
     return {"vsql": ctx.oracle}[method]
@@ -726,7 +602,7 @@ def stage_views(method, ctx):
 
 def add_stage_info(rec, item, ctx):
     """Phan tich (khong goi LLM): stage1_sql = SQL nhap giai doan 1 mo rong tat dinh ve bang goc (view -> CTE), de do
-    rieng giai doan 1 va giai doan 2. TA-SQL: SQL nhap cua buoc TASL (chi dung de trich schema, khong phai cau tra loi).
+    rieng giai doan 1 va giai doan 2.
     gold_tables = so bang trong SQL dap an (de xem diem manh/yeu theo do phuc tap)."""
     rec["gold_tables"] = len(tables_in_sql(item["SQL"], ctx.schema))
     if rec["method"] == "dinsql":                   # DIN-SQL: mot lan sinh SQL, khong co ban nhap de tach giai doan
@@ -768,10 +644,4 @@ def score_stage1(rec, gold_rows, db_path, timeout):
     return rec
 
 
-def load_meaning(path):
-    p = Path(path) if path else None
-    return json.loads(p.read_text(encoding="utf-8")) if p and p.exists() else None
-
-
-__all__ = ["DbCtx", "run_item", "score", "add_stage_info", "score_stage1", "NOTES", "MAIN", "ABLATIONS", "IMPL", "load_tables_json",
-           "load_meaning"]
+__all__ = ["DbCtx", "run_item", "score", "add_stage_info", "score_stage1", "NOTES", "MAIN", "ABLATIONS", "IMPL", "load_tables_json"]

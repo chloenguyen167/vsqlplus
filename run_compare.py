@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""So sanh TA-SQL, V-SQL (dung theo paper) va V-SQL+ (cai tien) tren BIRD mini-dev, cung mot LLM chay qua Ollama.
+"""So sanh V-SQL (dung theo paper), V-SQL+ (cai tien), DIN-SQL va DAIL-SQL tren BIRD mini-dev, cung mot LLM chay qua Ollama.
 
 Du lieu: cau hoi BIRD mini-dev ban 2025-07-04 tren Hugging Face (birdsql/bird_mini_dev, commit f65faf4, md5
 595b6b014a528f4386d2e16f74d14b40): 500 cau khac nhau. CSDL, dev_tables.json, mo ta cot lay tu zip OSS. Ban zip OSS 2024-06
@@ -7,7 +7,7 @@ Du lieu: cau hoi BIRD mini-dev ban 2025-07-04 tren Hugging Face (birdsql/bird_mi
 
 Vi du (tren Colab, xem notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb):
   python run_compare.py --data minidev/MINIDEV/mini_dev_sqlite_2025-07-04.json --db-root minidev/MINIDEV/dev_databases \
-      --tables-json minidev/MINIDEV/dev_tables.json --tasql-meaning column_meaning.json \
+      --tables-json minidev/MINIDEV/dev_tables.json\
       --model qwen3:8b --out results/cmp_qwen3_8b_d2025
 """
 import argparse
@@ -21,7 +21,7 @@ from vsql import report
 from vsql import views as V
 from vsql.db import run_sql, tables_in_sql
 from vsql.llm import OllamaLLM, OpenAICompatLLM
-from vsql.methods import (ABLATIONS, EXTRA, IMPL, MAIN, NOTES, DbCtx, add_stage_info, load_meaning, load_tables_json, run_item,
+from vsql.methods import (ABLATIONS, EXTRA, IMPL, MAIN, NOTES, DbCtx, add_stage_info, load_tables_json, run_item,
                           score, score_stage1)
 
 
@@ -29,11 +29,10 @@ def parse_args(argv=None):
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     a.add_argument("--data", required=True)
     a.add_argument("--db-root", required=True)
-    a.add_argument("--tables-json", default="", help="dev_tables.json (TA-SQL dung pk/fk tu day); mac dinh canh --data")
-    a.add_argument("--tasql-meaning", default="", help="column_meaning.json cua TA-SQL (khong co: dung mo ta CSV)")
+    a.add_argument("--tables-json", default="", help="dev_tables.json (DIN-SQL / DAIL-SQL dung pk/fk tu day); mac dinh canh --data")
     a.add_argument("--out", default="results/cmp")
     a.add_argument("--methods", default="main",
-                   help="main (tasql,vsql,vsqlplus) | all (+ ablation) | danh sach, vd: " + ",".join(MAIN + EXTRA + ABLATIONS))
+                   help="main (vsql,vsqlplus) | all (+ ablation) | danh sach, vd: " + ",".join(MAIN + EXTRA + ABLATIONS))
     # LLM
     a.add_argument("--model", default="qwen3:8b")
     a.add_argument("--backend", default="ollama", choices=["ollama", "openai"])
@@ -75,6 +74,7 @@ def parse_args(argv=None):
     a.add_argument("--dail-train", default="", help="train.json cua BIRD (vi du cho DAIL-SQL)")
     a.add_argument("--dail-train-tables", default="", help="train_tables.json cua BIRD")
     a.add_argument("--dail-k", type=int, default=7)
+    a.add_argument("--dail-cache", default="", help="thu muc cache tap train DAIL-SQL (mac dinh: thu muc chua --dail-train)")
     a.add_argument("--timeout", type=float, default=30.0)
     a.add_argument("--views-only", action="store_true", help="chi sinh + kiem tra view (khong goi LLM)")
     a.add_argument("--selection-sweep", action="store_true", help="do do phu bang dap an cua buoc chon view (khong goi LLM sinh SQL)")
@@ -127,9 +127,8 @@ class _Recorder:
 
 
 # loai prompt (theo phan dau) va do dai tuong doi du kien cua cau tra loi; dung de uoc luong thoi gian con lai khi chua do
-# duoc loai do (TA-SQL SR->SQL hay viet giai thich toi 800 token: ~8 lan prompt ngan, do tren qwen3.5:9b)
-_KINDS = [("# Understand the pandas-like SR", "TA-SQL SR->SQL", 8.0), ("#SR is a piece", "TA-SQL sinh SR", 3.0),
-          ("# the key is the table", "TA-SQL TASL", 2.0), ("# target\nAccording to", "giai doan 2 (Hinh 5)", 1.0),
+# duoc loai do
+_KINDS = [("# target\nAccording to", "giai doan 2 (Hinh 5)", 1.0),
           ("# target\nYou are an experienced database administrator, please answer \"question\" by sql", "V-SQL gd1 / V-SQL+ Hinh 4", 1.0),
           ("# target\nYou are an experienced database administrator, please answer \"question\" by ONE", "V-SQL+ gd1", 1.0),
           ("\nFor the given question, find the schema links", "DIN-SQL schema linking", 4.0),
@@ -158,7 +157,7 @@ def _eta(stats, left):
 
 
 def prefetch(llm, jobs, ctxs, args, out):
-    """Goi truoc moi prompt con thieu theo tung vong (TA-SQL 3 vong, V-SQL 2, V-SQL+ toi da 4). Prompt sap theo thu tu chu
+    """Goi truoc moi prompt con thieu theo tung vong (V-SQL 2 vong, V-SQL+ toi da 4, DIN-SQL 3, DAIL-SQL 2). Prompt sap theo thu tu chu
     de cac prompt chung tien to (cung schema) dung lien nhau -> Ollama dung lai KV cache. Ket qua tung cau KHONG doi."""
     for rnd in range(1, 10):
         rec = _Recorder(llm)
@@ -266,13 +265,9 @@ def main(argv=None, llm=None):
 
     tj_path = args.tables_json or str(Path(args.data).with_name("dev_tables.json"))
     tables_json = load_tables_json(tj_path)
-    meaning = load_meaning(args.tasql_meaning)
-    if "tasql" in methods:
-        print(f"[TA-SQL] dev_tables.json: {'co' if tables_json else 'KHONG CO'}; column_meaning.json: "
-              f"{'co' if meaning else 'khong co -> dung mo ta CSV'}")
     ctxs, stats = {}, {}
     for db in sorted({it["db_id"] for it in data}):
-        c = ctxs[db] = DbCtx(db, Path(args.db_root) / db, by_db[db], args, tables_json, meaning)
+        c = ctxs[db] = DbCtx(db, Path(args.db_root) / db, by_db[db], args, tables_json)
         for src, vs in [("oracle", c.oracle), ("auto", c.auto)]:
             (out / "views" / f"{db}.{src}.sql").write_text(
                 "\n\n".join(f"-- origin={v.origin} row_preserving={v.row_preserving} check={v.verified}\n{v.ddl()}"
@@ -299,6 +294,15 @@ def main(argv=None, llm=None):
     if args.retry_llm_errors and hasattr(llm, "forget_errors"):
         print(f"[retry-llm-errors] xoa {llm.forget_errors()} cau tra loi loi khoi cache de thu lai")
 
+    # V-SQL+ chon view co / khong embedding cho prompt khac nhau: khong tron hai cach trong cung mot file ket qua
+    emb_now = "" if args.no_embed else args.embed_model
+    old_cfg = out / "config.json"
+    if old_cfg.exists() and any((out / f"predictions_{m}.jsonl").exists() for m in methods if m.startswith("vsqlplus")):
+        o = json.loads(old_cfg.read_text())
+        emb_old = "" if o.get("no_embed") else o.get("embed_model", "")
+        if emb_old != emb_now:
+            raise SystemExit(f"[DUNG] Thu muc {out} da co ket qua V-SQL+ chay voi embedding '{emb_old or 'khong'}', lan nay "
+                             f"'{emb_now or 'khong'}'. Dung lai dung cai dat cu (EMBED_MODEL) hoac doi thu muc ket qua.")
     (out / "config.json").write_text(json.dumps(vars(args), indent=1))
     for m in methods:
         split_stale(out, m)
@@ -352,7 +356,7 @@ def main(argv=None, llm=None):
         if n_err:
             print(f"[LOI LLM] {m}: {n_err} cau co it nhat mot loi goi LLM (tinh la sai). Xem /content/ollama.log; "
                   f"chay lai voi --retry-llm-errors de thu lai.")
-    print(report.build(out, refs=[r for r in ("tasql", "vsql", "dinsql", "dailsql") if r in methods]))
+    print(report.build(out, refs=[r for r in ("dinsql", "dailsql", "vsql") if r in methods]))
     print(f"\nDa ghi: {out / 'summary.md'}, {out / 'summary.csv'}")
 
 

@@ -1,5 +1,7 @@
 # Nhận xét kết quả: TA-SQL · V-SQL · V-SQL+ trên qwen3.5:0.8b và qwen3.5:4b
 
+> **Ghi chú (13/11):** TA-SQL đã bị gỡ khỏi mã nguồn; tài liệu này giữ nguyên làm số liệu lịch sử của lần chạy cũ.
+
 Kết quả lấy từ `results_new/` (chạy trên Colab, GPU T4). Phần `qwen3.5:9b` sẽ bổ sung sau (mục 6).
 
 > **Ghi chú 13/11:** "V-SQL" trong tài liệu này là bản V-SQL đầu tiên (`predictions_vsql.jsonl` của lần chạy này), đã bị gỡ

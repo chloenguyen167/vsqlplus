@@ -93,9 +93,9 @@ def build(out_dir, ref="vsql", refs=None):
                              **{f"ex_{d}": (100 * sum(v) / len(v) if v else "") for d, v in by.items()}))
 
     # ---- 2. so sanh ghep cap voi tung phuong phap tham chieu, p hieu chinh Holm trong moi bang
-    titles = {"vsql": "V-SQL tai hien theo paper", "tasql": "TA-SQL, baseline cua paper",
+    titles = {"vsql": "V-SQL tai hien theo paper",
               "dinsql": "DIN-SQL, baseline Bang 3", "dailsql": "DAIL-SQL, baseline Bang 3"}
-    refs = [x for x in (refs or ("tasql", ref)) if x in res]
+    refs = [x for x in (refs or (ref,)) if x in res]
     for k, rf in enumerate(refs):
         title = titles.get(rf, rf)
         md += [f"\n## 2{'abcdefgh'[k]}. So sanh ghep cap voi `{rf}` ({title})\n",
@@ -113,7 +113,7 @@ def build(out_dir, ref="vsql", refs=None):
         for (m, d, b, c, lo, hi, p), ph in zip(rows, holm):
             md.append(f"| `{m}` | {100 * sum(d) / len(d):+.1f} | [{100 * lo:+.1f}, {100 * hi:+.1f}] | {b} | {c} | {p:.3f} | "
                       + (f"**{ph:.3f}**" if ph < 0.05 else f"{ph:.3f}") + " |")
-            sfx = "" if k == 0 else f"_{rf}"
+            sfx = f"_{rf}"
             next(x for x in rows_csv if x["method"] == m).update(**{
                 f"delta_vs_ref{sfx}": 100 * sum(d) / len(d), f"delta_lo{sfx}": 100 * lo, f"delta_hi{sfx}": 100 * hi,
                 f"only_ref{sfx}": b, f"only_this{sfx}": c, f"mcnemar_p{sfx}": p, f"holm_p{sfx}": ph})
@@ -154,7 +154,6 @@ def build(out_dir, ref="vsql", refs=None):
     if st:
         md += ["\n## 5. Tach giai doan 1 / giai doan 2 (tren cung cac cau)\n",
                "Giai doan 1 = SQL nhap mo rong tat dinh ve bang goc (view -> CTE), tuc la ket qua neu giai doan 2 khong lam sai gi. "
-               "TA-SQL: SQL nhap cua buoc TASL (chi dung de trich schema; buoc 2 viet lai tu dau). "
                "DAIL-SQL: SQL vong 1 (vi du chon theo cau hoi) so voi vong 2 (vi du chon them theo khung SQL vong 1). DIN-SQL khong tach.\n",
                "| Cau hinh | Gd1 dung | Cuoi dung | Gd2 sua dung | Gd2 lam hong | Rong | Loi chinh cua cau bi lam hong |",
                "|---|---|---|---|---|---|---|"]
@@ -173,11 +172,9 @@ def build(out_dir, ref="vsql", refs=None):
     # ---- 6. doc ablation
     def ex(m):
         return 100 * sum(int(res[m][q]["correct"]) for q in qids) / len(qids) if m in res else None
-    pairs = [("V-SQL so voi TA-SQL", "vsql", "tasql"),
-             ("V-SQL so voi DIN-SQL", "vsql", "dinsql"), ("V-SQL so voi DAIL-SQL", "vsql", "dailsql"),
+    pairs = [("V-SQL so voi DIN-SQL", "vsql", "dinsql"), ("V-SQL so voi DAIL-SQL", "vsql", "dailsql"),
              ("V-SQL+ so voi DIN-SQL", "vsqlplus", "dinsql"), ("V-SQL+ so voi DAIL-SQL", "vsqlplus", "dailsql"),
              ("V-SQL+ so voi V-SQL", "vsqlplus", "vsql"),
-             ("V-SQL+ so voi TA-SQL", "vsqlplus", "tasql"),
              ("Huong 1 + prompt moi, dua het view (so voi V-SQL)", "vsqlplus_all", "vsql"),
              ("Huong 2: chon view (so voi dua het view)", "vsqlplus", "vsqlplus_all"),
              ("Huong 2 - bau chon nhieu mau", "vsqlplus", "vsqlplus_novote"),
@@ -185,7 +182,6 @@ def build(out_dir, ref="vsql", refs=None):
              ("Huong 2 - schema lai", "vsqlplus", "vsqlplus_nofb"),
              ("Giai doan 2 LLM (paper) so voi giai ma tat dinh", "vsqlplus", "vsqlplus_det"),
              ("2 huong cai tien, cung template + schema (so voi V-SQL)", "vsqlplus_fig4", "vsql"),
-             ("2 huong cai tien, cung prompt Hinh 4 (so voi TA-SQL)", "vsqlplus_fig4", "tasql"),
              ("Tac dung rieng cua prompt gd1 moi (V-SQL+ hien tai so voi ban Hinh 4)", "vsqlplus", "vsqlplus_fig4")]
     md += ["\n## 6. Dong gop rieng cua tung cai tien\n", "| Yeu to | So sanh | dEX |", "|---|---|---|"]
     for name, a, b in pairs:
