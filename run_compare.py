@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""So sanh V-SQL (dung theo paper), V-SQL+ (cai tien), DIN-SQL va DAIL-SQL tren BIRD mini-dev, cung mot LLM chay qua Ollama.
+"""So sanh V-SQL (dung theo paper), V-SQL+ (cai tien) va DAIL-SQL tren BIRD mini-dev, cung mot LLM chay qua Ollama.
 
 Du lieu: cau hoi BIRD mini-dev ban 2025-07-04 tren Hugging Face (birdsql/bird_mini_dev, commit f65faf4, md5
 595b6b014a528f4386d2e16f74d14b40): 500 cau khac nhau. CSDL, dev_tables.json, mo ta cot lay tu zip OSS. Ban zip OSS 2024-06
@@ -20,8 +20,8 @@ from pathlib import Path
 from vsql import report
 from vsql import views as V
 from vsql.db import run_sql, tables_in_sql
-from vsql.llm import OllamaLLM, OpenAICompatLLM
-from vsql.methods import (ABLATIONS, EXTRA, IMPL, MAIN, NOTES, DbCtx, set_vsql_views, add_stage_info, load_tables_json, run_item,
+from vsql.llm import OllamaLLM, OpenAICompatLLM, find_api_key
+from vsql.methods import (ABLATIONS, EXTRA, IMPL, MAIN, NOTES, DbCtx, add_stage_info, load_tables_json, run_item,
                           score, score_stage1)
 
 
@@ -29,21 +29,23 @@ def parse_args(argv=None):
     a = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     a.add_argument("--data", required=True)
     a.add_argument("--db-root", required=True)
-    a.add_argument("--tables-json", default="", help="dev_tables.json (DIN-SQL / DAIL-SQL dung pk/fk tu day); mac dinh canh --data")
+    a.add_argument("--tables-json", default="", help="dev_tables.json (DAIL-SQL dung pk/fk tu day); mac dinh canh --data")
     a.add_argument("--out", default="results/cmp")
     a.add_argument("--methods", default="main",
                    help="main (vsql,vsqlplus) | all (+ ablation) | danh sach, vd: " + ",".join(MAIN + EXTRA + ABLATIONS))
     # LLM
     a.add_argument("--model", default="qwen3:8b")
     a.add_argument("--backend", default="ollama", choices=["ollama", "openai"])
-    a.add_argument("--base-url", default="")
-    a.add_argument("--api-key-env", default="OPENAI_API_KEY")
-    a.add_argument("--rpm", type=float, default=0)
+    a.add_argument("--base-url", default="", help="--backend openai: mac dinh https://api.openai.com/v1")
+    a.add_argument("--api-key-env", default="OPENAI_API_KEY",
+                   help="ten bien chua API key; tim trong bien moi truong -> file .env -> Colab Secrets")
+    a.add_argument("--rpm", type=float, default=0, help="gioi han so lan goi API moi phut (0 = khong gioi han, tu cho khi 429)")
+    a.add_argument("--reasoning-effort", default="", help="chi cho model suy luan (gpt-5.x, o-series): minimal|low|medium|high")
     a.add_argument("--host", default="http://localhost:11434")
     a.add_argument("--num-ctx", type=int, default=20480, help="du cho prompt dai nhat (view V-SQL ~14k token)")
     a.add_argument("--num-predict", type=int, default=800, help="paper: 800")
     a.add_argument("--think", action="store_true")
-    a.add_argument("--workers", type=int, default=1, help="so luong goi Ollama song song (can OLLAMA_NUM_PARALLEL >= workers)")
+    a.add_argument("--workers", type=int, default=1, help="so luong goi LLM song song (Ollama: can OLLAMA_NUM_PARALLEL >= workers; API: 4 la hop ly)")
     a.add_argument("--no-prefetch", action="store_true")
     a.add_argument("--retry-llm-errors", action="store_true",
                    help="thu lai cac prompt truoc do bi Ollama bao loi (mac dinh: giu cau tra loi rong da ghi nhan)")
@@ -56,8 +58,6 @@ def parse_args(argv=None):
     a.add_argument("--samples", type=int, default=3, help="so gia tri mau moi cot trong prompt (V-SQL+)")
     a.add_argument("--vsql-evidence", default="query", choices=["query", "none"],
                    help="V-SQL: noi evidence vao {query} cua Hinh 4/5 (template giu nguyen) hoac khong dung evidence")
-    a.add_argument("--vsql-views", default="oracle", choices=["oracle", "all"],
-                   help="V-SQL: D' = view co bang goc trong SQL dap an (oracle, mac dinh) hoac moi view cua CSDL (all)")
     a.add_argument("--no-infer-fk", action="store_true", help="khong suy them khoa ngoai (debit_card thieu khai bao)")
     # view
     a.add_argument("--depth", type=int, default=2)
@@ -67,6 +67,10 @@ def parse_args(argv=None):
     a.add_argument("--no-embed", action="store_true", help="chi dung BM25 (khong embedding)")
     a.add_argument("--all-max-objects", type=int, default=4, help="<= so doi tuong nay: dua het vao prompt")
     a.add_argument("--all-max-tokens", type=int, default=3500, help="schema <= so token nay: dua het vao prompt")
+    a.add_argument("--vsql-select", choices=["llm", "bm25", "all"], default="llm",
+                   help="V-SQL: cach chon doi tuong cua D' dua vao prompt Hinh 4 (llm: them 1 lan goi LLM; bm25: top-k; all: het)")
+    a.add_argument("--vsql-topk", type=int, default=4,
+                   help="V-SQL: so doi tuong cua D' (view + bang) truy hoi theo cau hoi bang BM25 dua vao prompt Hinh 4")
     a.add_argument("--k-cand", type=int, default=5, help="so doi tuong ung vien dua vao buoc bau chon")
     a.add_argument("--topk", type=int, default=4, help="so doi tuong giu lai khi khong bau chon")
     a.add_argument("--n-samples", type=int, default=4, help="so dummy SQL de bau chon (1 tham lam + N-1 mau)")
@@ -133,10 +137,7 @@ class _Recorder:
 _KINDS = [("# target\nAccording to", "giai doan 2 (Hinh 5)", 1.0),
           ("# target\nYou are an experienced database administrator, please answer \"question\" by sql", "V-SQL gd1 / V-SQL+ Hinh 4", 1.0),
           ("# target\nYou are an experienced database administrator, please answer \"question\" by ONE", "V-SQL+ gd1", 1.0),
-          ("\nFor the given question, find the schema links", "DIN-SQL schema linking", 4.0),
-          ("\nFor the given question, classify", "DIN-SQL phan loai", 3.0),
-          ("\nUse the schema links", "DIN-SQL sinh SQL (EASY)", 2.0),
-          ("\nUse the the schema links", "DIN-SQL sinh SQL (CoT)", 5.0),
+          ("# target\nYou are an experienced database administrator. Select", "V-SQL chon view (LLM)", 0.3),
           ("/* Some SQL examples", "DAIL-SQL", 1.0), ("/* Given the following", "DAIL-SQL", 1.0)]
 
 
@@ -159,7 +160,7 @@ def _eta(stats, left):
 
 
 def prefetch(llm, jobs, ctxs, args, out):
-    """Goi truoc moi prompt con thieu theo tung vong (V-SQL 2 vong, V-SQL+ toi da 4, DIN-SQL 3, DAIL-SQL 2). Prompt sap theo thu tu chu
+    """Goi truoc moi prompt con thieu theo tung vong (V-SQL 2 vong, V-SQL+ toi da 4, DAIL-SQL 2). Prompt sap theo thu tu chu
     de cac prompt chung tien to (cung schema) dung lien nhau -> Ollama dung lai KV cache. Ket qua tung cau KHONG doi."""
     for rnd in range(1, 10):
         rec = _Recorder(llm)
@@ -244,7 +245,9 @@ def split_stale(out, m):
 
 def main(argv=None, llm=None):
     args = parse_args(argv)
-    set_vsql_views(args.vsql_views)
+    if args.backend == "openai" and not args.no_embed:
+        print("[openai] V-SQL+ chon view chi bang BM25 (embedding chay qua Ollama, khong co o backend openai)", flush=True)
+        args.no_embed = True
     out = Path(args.out)
     (out / "views").mkdir(parents=True, exist_ok=True)
     data = load_data(args)
@@ -286,9 +289,13 @@ def main(argv=None, llm=None):
 
     if llm is None:
         if args.backend == "openai":
-            import os
-            llm = OpenAICompatLLM(args.model, args.base_url, os.environ.get(args.api_key_env, ""),
-                                  str(out / "llm_cache.sqlite"), args.num_predict, rpm=args.rpm)
+            key = find_api_key(args.api_key_env)
+            if not key:
+                raise SystemExit(f"Khong tim thay API key ({args.api_key_env}): dat bien moi truong, file .env o thu muc repo, "
+                                 "hoac Colab Secrets. Xem docs/HUONG_DAN_API_OPENAI.md")
+            extra = {"reasoning_effort": args.reasoning_effort} if args.reasoning_effort else None
+            llm = OpenAICompatLLM(args.model, args.base_url, key, str(out / "llm_cache.sqlite"), args.num_predict,
+                                  rpm=args.rpm, extra=extra)
         else:
             llm = OllamaLLM(args.model, args.host, str(out / "llm_cache.sqlite"), args.num_ctx, args.num_predict, args.think)
 
@@ -359,7 +366,7 @@ def main(argv=None, llm=None):
         if n_err:
             print(f"[LOI LLM] {m}: {n_err} cau co it nhat mot loi goi LLM (tinh la sai). Xem /content/ollama.log; "
                   f"chay lai voi --retry-llm-errors de thu lai.")
-    print(report.build(out, refs=[r for r in ("dinsql", "dailsql", "vsql") if r in methods]))
+    print(report.build(out, refs=[r for r in ("dailsql", "vsql") if r in methods]))
     print(f"\nDa ghi: {out / 'summary.md'}, {out / 'summary.csv'}")
 
 

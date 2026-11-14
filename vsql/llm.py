@@ -3,6 +3,7 @@ vLLM...)."""
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
 import sqlite3
 import threading
@@ -135,16 +136,41 @@ def _norm(opts):
     return sorted((k, v) for k, v in opts.items())
 
 
+OPENAI_URL = "https://api.openai.com/v1"
+
+
+def find_api_key(env="OPENAI_API_KEY", dotenv_dirs=(".", Path(__file__).resolve().parent.parent)):
+    """API key theo thu tu: bien moi truong -> file .env (thu muc hien tai, thu muc repo) -> Colab Secrets (userdata).
+    Khong in key ra man hinh. Tra ve "" neu khong tim thay."""
+    if os.environ.get(env):
+        return os.environ[env].strip()
+    for d in dotenv_dirs:
+        f = Path(d) / ".env"
+        if f.is_file():
+            for line in f.read_text(encoding="utf-8").splitlines():
+                k, sep, v = line.strip().removeprefix("export ").partition("=")
+                if sep and k.strip() == env and v.strip().strip("'\""):
+                    return v.strip().strip("'\"")
+    try:
+        from google.colab import userdata                       # Colab: Secrets (bieu tuong chia khoa o thanh ben trai)
+        return (userdata.get(env) or "").strip()
+    except Exception:  # noqa: BLE001  (khong o Colab / chua cap quyen truy cap secret cho notebook)
+        return ""
+
+
 class OpenAICompatLLM:
     """Goi API /chat/completions kieu OpenAI. Cung giao dien voi OllamaLLM (chat, cached) va cung co che cache SQLite,
     nen chay lai se khong goi lai API. Tu cho khi bi gioi han toc do (HTTP 429) va gian cach theo --rpm."""
 
     def __init__(self, model, base_url, api_key=None, cache_path="llm_cache.sqlite", max_tokens=800, temperature=0.0,
                  rpm=0, seed=0, extra=None):
-        self.model, self.base_url = model, base_url.rstrip("/")
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
+        self.model, self.base_url = model, (base_url or OPENAI_URL).rstrip("/")
+        self.api_key = api_key or find_api_key()
         self.options = {"temperature": temperature, "max_tokens": max_tokens, "seed": seed}
         self.extra = extra or {}
+        # model moi (gpt-5.x, o-series) khong nhan max_tokens / temperature=0: tu doi khi API bao loi 400, ghi nho cho cac
+        # lan goi sau. Chi sua body gui di, KHONG doi self.options -> khoa cache giu nguyen.
+        self.rename, self.drop = {}, set()
         self.min_gap = 60.0 / rpm if rpm else 0.0
         self._last = 0.0
         self.db = sqlite3.connect(cache_path, check_same_thread=False)
@@ -153,7 +179,8 @@ class OpenAICompatLLM:
         self.truncated = 0
 
     def _key(self, prompt, opts=None):
-        k = ["openai", self.base_url, self.model, self.options, prompt] + ([_norm(opts)] if opts else [])
+        k = (["openai", self.base_url, self.model, self.options, prompt] + ([_norm(opts)] if opts else [])
+             + ([_norm(self.extra)] if self.extra else []))
         return hashlib.sha256(json.dumps(k).encode()).hexdigest()
 
     def cached(self, prompt, **opts):
@@ -161,12 +188,19 @@ class OpenAICompatLLM:
             row = self.db.execute("SELECT v FROM cache WHERE k=?", (self._key(prompt, opts),)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def _adapt(self, body):
+        body = {self.rename.get(k, k): v for k, v in body.items() if k not in self.drop}
+        return body
+
     def _post(self, body, tries=8):
-        req = lambda: urllib.request.Request(self.base_url + "/chat/completions", json.dumps(body).encode(),
+        if not self.api_key:
+            raise SystemExit("Chua co API key: dat bien moi truong OPENAI_API_KEY, file .env, hoac Colab Secrets "
+                             "(xem docs/HUONG_DAN_API_OPENAI.md)")
+        req = lambda: urllib.request.Request(self.base_url + "/chat/completions", json.dumps(self._adapt(body)).encode(),
                                              {"Content-Type": "application/json",
                                               "Authorization": f"Bearer {self.api_key}"})
         wait = 5.0
-        for i in range(tries):
+        for i in range(tries + 3):
             if self.min_gap:
                 time.sleep(max(0.0, self._last + self.min_gap - time.time()))
             self._last = time.time()
@@ -174,10 +208,28 @@ class OpenAICompatLLM:
                 with urllib.request.urlopen(req(), timeout=600) as r:
                     return json.loads(r.read())
             except urllib.error.HTTPError as e:
-                msg = e.read().decode("utf-8", "replace")[:300]
-                if e.code == 400 and "seed" in body:            # mot so nha cung cap khong nhan tham so seed
-                    body = {k: v for k, v in body.items() if k != "seed"}
+                msg = e.read().decode("utf-8", "replace")[:500]
+                low = msg.lower()
+                if e.code == 400 and "max_tokens" in low and "max_completion_tokens" in low and "max_tokens" not in self.rename:
+                    self.rename["max_tokens"] = "max_completion_tokens"
+                    print(f"[API] {self.model}: dung max_completion_tokens thay max_tokens", flush=True)
                     continue
+                if e.code == 400 and "temperature" in low and ("unsupported" in low or "does not support" in low) \
+                        and "temperature" not in self.drop:
+                    self.drop.add("temperature")
+                    print(f"[API] {self.model} khong nhan temperature=0 -> dung mac dinh cua model (ghi ro khi bao cao)", flush=True)
+                    continue
+                if e.code == 400 and "seed" in low and "seed" not in self.drop:   # mot so nha cung cap khong nhan seed
+                    self.drop.add("seed")
+                    continue
+                if e.code == 401:
+                    raise SystemExit("API key sai hoac da bi thu hoi (HTTP 401). Tao key moi o platform.openai.com/api-keys")
+                if e.code == 404 or "model_not_found" in low:
+                    raise SystemExit(f"Model '{self.model}' khong ton tai / da ngung hoac key khong co quyen (HTTP {e.code}): "
+                                     f"{msg[:200]}")
+                if "insufficient_quota" in low or ("billing" in low and e.code == 429):
+                    raise SystemExit("Tai khoan API het tien (insufficient_quota). Nap them o Settings -> Billing; cac cau da "
+                                     "goi nam trong cache, chay lai se tiep tuc tu cho dung.")
                 if e.code in (429, 500, 502, 503, 504) and i < tries - 1:
                     ra = e.headers.get("Retry-After")
                     delay = float(ra) if ra and ra.replace(".", "").isdigit() else wait

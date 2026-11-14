@@ -1,5 +1,4 @@
-# V-SQL, V-SQL+, DIN-SQL, DAIL-SQL: chi can Python >= 3.8 (thu vien chuan) va Ollama chay cuc bo.
-# DIN-SQL: sqlalchemy, pandas (co san tren Colab).
+# V-SQL, V-SQL+, DAIL-SQL: chi can Python >= 3.8 (thu vien chuan) va Ollama chay cuc bo.
 # DAIL-SQL: them cac goi duoi day (notebook tu cai khi tick dailsql); spaCy can model: python -m spacy download en_core_web_sm
 sql_metadata<3
 sentence-transformers

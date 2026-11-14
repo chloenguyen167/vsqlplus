@@ -1,0 +1,101 @@
+{
+ "california_schools": {
+  "tables": 3,
+  "fks": 2,
+  "inferred_fks": 0,
+  "oracle": 2,
+  "oracle_ok": 2,
+  "auto": 1,
+  "auto_ok": 1
+ },
+ "card_games": {
+  "tables": 6,
+  "fks": 4,
+  "inferred_fks": 0,
+  "oracle": 4,
+  "oracle_ok": 4,
+  "auto": 1,
+  "auto_ok": 1
+ },
+ "codebase_community": {
+  "tables": 8,
+  "fks": 13,
+  "inferred_fks": 0,
+  "oracle": 7,
+  "oracle_ok": 7,
+  "auto": 7,
+  "auto_ok": 7
+ },
+ "debit_card_specializing": {
+  "tables": 5,
+  "fks": 4,
+  "inferred_fks": 3,
+  "oracle": 2,
+  "oracle_ok": 2,
+  "auto": 2,
+  "auto_ok": 2
+ },
+ "european_football_2": {
+  "tables": 7,
+  "fks": 31,
+  "inferred_fks": 0,
+  "oracle": 3,
+  "oracle_ok": 3,
+  "auto": 3,
+  "auto_ok": 3
+ },
+ "financial": {
+  "tables": 8,
+  "fks": 8,
+  "inferred_fks": 0,
+  "oracle": 7,
+  "oracle_ok": 7,
+  "auto": 7,
+  "auto_ok": 7
+ },
+ "formula_1": {
+  "tables": 13,
+  "fks": 19,
+  "inferred_fks": 0,
+  "oracle": 8,
+  "oracle_ok": 8,
+  "auto": 8,
+  "auto_ok": 8
+ },
+ "student_club": {
+  "tables": 8,
+  "fks": 8,
+  "inferred_fks": 0,
+  "oracle": 5,
+  "oracle_ok": 5,
+  "auto": 5,
+  "auto_ok": 5
+ },
+ "superhero": {
+  "tables": 10,
+  "fks": 11,
+  "inferred_fks": 0,
+  "oracle": 3,
+  "oracle_ok": 3,
+  "auto": 3,
+  "auto_ok": 3
+ },
+ "thrombosis_prediction": {
+  "tables": 3,
+  "fks": 2,
+  "inferred_fks": 0,
+  "oracle": 2,
+  "oracle_ok": 2,
+  "auto": 2,
+  "auto_ok": 2
+ },
+ "toxicology": {
+  "tables": 4,
+  "fks": 5,
+  "inferred_fks": 0,
+  "oracle": 3,
+  "oracle_ok": 3,
+  "auto": 3,
+  "auto_ok": 3
+ }
+}

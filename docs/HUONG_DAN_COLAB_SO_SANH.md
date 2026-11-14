@@ -1,4 +1,4 @@
-# Hướng dẫn chạy so sánh V-SQL · V-SQL+ · DIN-SQL · DAIL-SQL trên Google Colab (GPU T4)
+# Hướng dẫn chạy so sánh V-SQL · V-SQL+ · DAIL-SQL trên Google Colab (GPU T4)
 
 Tài liệu này hướng dẫn từng bước chạy notebook
 [`notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`](../notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb) với các model Qwen
@@ -85,7 +85,7 @@ BIRD và chạy được trên T4:
 |---|---|---|
 | `qwen2.5-coder:14b` | Zero-shot trên BIRD mini-dev khoảng 49,6% (bài BAPPA), cao hơn GPT-4-turbo (45,8%) | Nên thử trước với `SAMPLE = 50` |
 | `qwen2.5-coder:7b` | Khoảng giữa GPT-3.5 và GPT-4 trên BIRD dev | |
-| `a-kore/Arctic-Text2SQL-R1-7B` | 68,9% trên BIRD dev | Được huấn luyện riêng cho BIRD theo định dạng suy luận riêng; có thể không làm theo prompt nhiều bước của DIN-SQL / V-SQL, và trả lời dễ vượt 800 token |
+| `a-kore/Arctic-Text2SQL-R1-7B` | 68,9% trên BIRD dev | Được huấn luyện riêng cho BIRD theo định dạng suy luận riêng; có thể không làm theo prompt nhiều bước của V-SQL, và trả lời dễ vượt 800 token |
 
 Tên sai thì Bước 6 báo lỗi ở `ollama pull`. Model lớn hơn khoảng 14B (vd `qwen2.5-coder:32b`) không vừa T4.
 
@@ -101,16 +101,15 @@ Tick ít nhất một ô:
 
 | Ô tick | Là gì | Lượt gọi LLM/câu (ước tính) |
 |---|---|---|
-| `vsql` ✔ | **V-SQL tái hiện theo paper** (bản duy nhất, sát paper nhất có thể): view dựng theo các phép JOIN của SQL đáp án như mục 6, viết đúng kiểu Hình 3 (cột id trỏ tới bảng tra cứu được thay tại chỗ bằng giá trị: `gender_id` → `gender`; `v_superhero` trùng Hình 3); D′ = mọi view của CSDL, bảng thực thể không phải bảng gốc của view vẫn hiện, chỉ bảng tra cứu `id` + 1 cột giá trị như `colour`, `gender` biến mất (mục 4.1), **không có bước truy hồi / chọn view**; giai đoạn 1 prompt Hình 4, giai đoạn 2 **luôn chạy** prompt Hình 5 (đúng từng chữ; có `{db_type}` = SQLite và khối định dạng), lấy bảng theo định nghĩa view như mục 4.5; nhiệt độ 0, 800 token. Phần paper không nói: schema Bảng 6 thêm mô tả giá trị + giá trị mẫu. File `predictions_vsql.jsonl`; chi tiết: mục 2.1 của `docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md` | 2 |
+| `vsql` ✔ | **V-SQL tái hiện theo paper** (bản duy nhất, sát paper nhất có thể): view dựng theo các phép JOIN của SQL đáp án như mục 6, viết đúng kiểu Hình 3 (cột id trỏ tới bảng tra cứu được thay tại chỗ bằng giá trị: `gender_id` → `gender`; `v_superhero` trùng Hình 3); D′ = mọi view của CSDL, bảng thực thể không phải bảng gốc của view vẫn hiện, chỉ bảng tra cứu `id` + 1 cột giá trị như `colour`, `gender` biến mất (mục 4.1), **chọn theo câu hỏi**: mặc định thêm 1 lần gọi LLM, đưa danh mục D′ (tên + cột) và câu hỏi, LLM trả về các view/bảng cần dùng, chỉ những đối tượng đó vào prompt Hình 4 (`--vsql-select llm`; `bm25` = top-k BM25, `all` = đưa hết; chú thích Hình 4 "related to the query, retrieved", Hình 1 "Relevant Views"; paper không nói cách chọn; không nhìn SQL đáp án); giai đoạn 1 prompt Hình 4, giai đoạn 2 **luôn chạy** prompt Hình 5 (đúng từng chữ; có `{db_type}` = SQLite và khối định dạng), lấy bảng theo định nghĩa view như mục 4.5; nhiệt độ 0, 800 token. Phần paper không nói: schema Bảng 6 thêm mô tả giá trị + giá trị mẫu. File `predictions_vsql.jsonl`; chi tiết: mục 2.1 của `docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md` | 2 |
 | `vsqlplus` ✔ | **V-SQL+**: 2 hướng cải tiến, (1) sinh view tự động từ khóa ngoại và (2) chọn view bằng truy hồi lai (BM25 + embedding, truy hồi mức cột, liên kết giá trị, bầu chọn nhiều mẫu, schema lai, CSDL nhỏ đưa hết view). Giai đoạn 2 vẫn là LLM khôi phục theo Hình 5 | ~4–4,5 |
-| `dinsql` (mặc định tắt) | **DIN-SQL**, baseline trong Bảng 3 của paper. Mã chính thức cho BIRD, prompt nguyên văn: liên kết schema → phân loại EASY / NON-NESTED / NESTED → sinh SQL theo loại. **Bỏ bước tự sửa lỗi** như paper. Prompt dài (5–10 nghìn token) nên chậm nhất | 3 |
 | `dailsql` (mặc định tắt) | **DAIL-SQL**, baseline trong Bảng 3. Cấu hình BIRD của mã chính thức: schema `CREATE TABLE` + 7 ví dụ từ tập train BIRD, chọn theo độ giống câu hỏi (đã che tên schema) và khung SQL. **1 mẫu, không bầu chọn** như paper. Bước 3 cài thêm `sentence-transformers`, spaCy; Bước 4 tải `train.json` + `train_tables.json` của BIRD (~5 MB, không tải cả `train.zip`); lần chạy đầu mất vài phút để chuẩn bị ví dụ (lưu lại trong thư mục kết quả) | 2 |
 
 Notebook in các phép so sánh: V-SQL+ − V-SQL (cải tiến), và nếu có chạy thì
-V-SQL / V-SQL+ − DIN-SQL, V-SQL / V-SQL+ − DAIL-SQL. Chi tiết DIN-SQL, DAIL-SQL và các điểm khác mã gốc: mục 2.2b của
+V-SQL / V-SQL+ − DAIL-SQL. Chi tiết DAIL-SQL và các điểm khác mã gốc: mục 2.2c của
 `docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`.
 
-Phương pháp đã chạy xong trong thư mục kết quả thì không chạy lại. Ví dụ model đã có `dinsql` và `vsqlplus` thì tick thêm `vsql`
+Phương pháp đã chạy xong trong thư mục kết quả thì không chạy lại. Ví dụ model đã có `dailsql` và `vsqlplus` thì tick thêm `vsql`
 chỉ chạy phần V-SQL. Riêng V-SQL: thư mục cũ có `predictions_vsql.jsonl` của bản V-SQL trước 13/11 thì các bản ghi đó được tách ra
 `old_predictions_vsql_*.jsonl` và V-SQL được chấm lại; `predictions_vsql_fair.jsonl` (tên cũ) bị bỏ qua khi tổng hợp.
 
@@ -237,7 +236,7 @@ Kiểm tra toàn bộ đường ống với model thật trước khi chạy lâ
 Bước 8 ghi vào thư mục riêng `/content/ketqua/_thu` (xoá mỗi lần chạy, log đầy đủ ở `_thu/log.txt`), nên không chạy trước phần
 nào của Bước 9. Thứ dùng chung duy nhất là cache tập train của DAIL-SQL (che tên schema + embedding ~9.400 câu, ~5–10 phút lần
 đầu trên CPU). Phần này được làm ở **Bước 4** (có dòng tiến độ) chứ không phải Bước 8; cache lưu ở `MyDrive/vsqlplus_ketqua/dail_cache` để Bước 9, mọi model và các phiên sau dùng lại. Để trống `EMBED_MODEL` thì Bước 6
-bỏ qua phần tải/thử embedding và mọi bước chạy với `--no-embed` (chỉ BM25); V-SQL, DIN-SQL, DAIL-SQL không dùng embedding này.
+bỏ qua phần tải/thử embedding và mọi bước chạy với `--no-embed` (chỉ BM25); V-SQL, DAIL-SQL không dùng embedding này.
 Nếu thư mục kết quả đã có V-SQL+ chạy với cài đặt embedding khác, Bước 9 dừng với thông báo `[DUNG]` thay vì trộn hai cách.
 
 ### Bước 9. Chạy chính
@@ -268,7 +267,7 @@ Dòng tiến độ có dạng:
 | `qwen3:8b` | ~6–10 giờ | +40% |
 | `qwen3.5:9b` | ~6–10 giờ | +40% |
 
-Thêm `dinsql`: khoảng +60–80% (3 lượt gọi với prompt dài, có lập luận từng bước). Thêm `dailsql`: khoảng +30–40%.
+Thêm `dailsql`: khoảng +30–40%.
 
 Nếu model đã có kết quả của một số phương pháp từ trước thì chỉ tốn thời gian cho các phương pháp còn thiếu.
 
@@ -286,7 +285,7 @@ Với mỗi model, ô này in hai bảng:
 
 1. **EX theo độ khó** (SIM./MOD./CHALL./TOTAL), kèm khoảng tin cậy 95%, tỉ lệ ảo giác schema (lỗi `no such column/table`),
    số lượt gọi LLM và số token vào mỗi câu.
-2. **So sánh ghép cặp**: V-SQL+ − V-SQL, và khi có DIN-SQL / DAIL-SQL thì V-SQL, V-SQL+ − DIN-SQL / DAIL-SQL, với ΔEX, khoảng tin cậy, số câu chỉ một bên đúng,
+2. **So sánh ghép cặp**: V-SQL+ − V-SQL, và khi có DAIL-SQL thì V-SQL, V-SQL+ − DAIL-SQL, với ΔEX, khoảng tin cậy, số câu chỉ một bên đúng,
    p McNemar và p Holm.
 
 Tiếp theo là bảng **tách giai đoạn** và bảng **điểm mạnh / yếu** (theo CSDL, theo số bảng); nếu bật `ABLATION` thì có
@@ -296,7 +295,7 @@ thêm bảng đóng góp của từng thành phần. Cuối ô là Bảng 3 củ
 - Kiểm tra cột `n` = **500** ở mọi dòng. Nếu nhỏ hơn thì lần chạy chưa xong (chạy lại Bước 9).
 - Một chênh lệch chỉ được coi là có ý nghĩa thống kê khi **p Holm < 0,05**. Với 500 câu, chênh lệch khoảng 3 điểm % trở xuống
   thường không có ý nghĩa.
-- Không so số tuyệt đối với paper (paper dùng GPT-3.5/GPT-4). Điều cần so là **thứ tự và chênh lệch** giữa V-SQL, V-SQL+, DIN-SQL và
+- Không so số tuyệt đối với paper (paper dùng GPT-3.5/GPT-4). Điều cần so là **thứ tự và chênh lệch** giữa V-SQL, V-SQL+ và
   DAIL-SQL trên cùng một model.
 
 ### Bước 11. Tổng hợp giữa các model
@@ -337,7 +336,7 @@ Trong mỗi thư mục `cmp_<model>/`:
 
 | File | Nội dung |
 |---|---|
-| `summary.md` | Báo cáo đầy đủ: EX (tổng và theo độ khó, CI 95%), so sánh ghép cặp với `dinsql`, `dailsql` và `vsql`, phân loại lỗi, chi phí, đóng góp từng thành phần, thống kê view |
+| `summary.md` | Báo cáo đầy đủ: EX (tổng và theo độ khó, CI 95%), so sánh ghép cặp với `dailsql` và `vsql`, phân loại lỗi, chi phí, đóng góp từng thành phần, thống kê view |
 | `summary.csv` | Các số trên dạng bảng, mỗi dòng một cấu hình (dùng để vẽ biểu đồ, đưa vào báo cáo) |
 | `predictions_<cấu hình>.jsonl` | Mỗi dòng một câu hỏi (500 dòng) |
 | `views/<CSDL>.oracle.sql`, `views/<CSDL>.auto.sql` | View của V-SQL (theo paper) và của V-SQL+ |
@@ -392,4 +391,5 @@ Mọi bước của notebook đều gọi `run_compare.py`. Trong một ô Colab
 Các tham số của V-SQL+ (giữ mặc định để khớp tài liệu): `--k-cand 5` (số ứng viên đưa vào bầu chọn), `--n-samples 4`
 (1 tham lam + 3 mẫu), `--sample-temp 0.7`, `--topk 4`, `--all-max-objects 4`, `--all-max-tokens 3500`, `--max-fallback 2`.
 Tham số của V-SQL: `--vsql-evidence query|none` (nối evidence vào `{query}` của Hình 4/5 hoặc bỏ hẳn evidence).
-`--vsql-views oracle|all` (mặc định `oracle`, impl 6): chú thích Hình 4 của paper ghi `db_schema` là *"description of tables related to the query, retrieved from a database"*, mục 6 nói phải *"retrieve the correct view description based on the user's query"*. Paper không nói cách truy hồi, nên `oracle` lấy theo SQL đáp án: chỉ đưa các view có bảng gốc nằm trong SQL đáp án, cộng các bảng còn lại của D′ mà đáp án dùng (trung bình 1,9 đối tượng/câu thay vì 6,4). Đây là **cận trên (oracle view selection)**, phải ghi rõ khi báo cáo. `all` = D′ gồm mọi view của CSDL (impl 5, kết quả cũ dùng lại được).
+
+**Chạy bằng model GPT qua API OpenAI** (máy local hoặc Colab, không cần GPU): xem [HUONG_DAN_API_OPENAI.md](HUONG_DAN_API_OPENAI.md).

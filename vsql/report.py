@@ -94,7 +94,7 @@ def build(out_dir, ref="vsql", refs=None):
 
     # ---- 2. so sanh ghep cap voi tung phuong phap tham chieu, p hieu chinh Holm trong moi bang
     titles = {"vsql": "V-SQL tai hien theo paper",
-              "dinsql": "DIN-SQL, baseline Bang 3", "dailsql": "DAIL-SQL, baseline Bang 3"}
+              "dailsql": "DAIL-SQL, baseline Bang 3"}
     refs = [x for x in (refs or (ref,)) if x in res]
     for k, rf in enumerate(refs):
         title = titles.get(rf, rf)
@@ -154,7 +154,7 @@ def build(out_dir, ref="vsql", refs=None):
     if st:
         md += ["\n## 5. Tach giai doan 1 / giai doan 2 (tren cung cac cau)\n",
                "Giai doan 1 = SQL nhap mo rong tat dinh ve bang goc (view -> CTE), tuc la ket qua neu giai doan 2 khong lam sai gi. "
-               "DAIL-SQL: SQL vong 1 (vi du chon theo cau hoi) so voi vong 2 (vi du chon them theo khung SQL vong 1). DIN-SQL khong tach.\n",
+               "DAIL-SQL: SQL vong 1 (vi du chon theo cau hoi) so voi vong 2 (vi du chon them theo khung SQL vong 1).\n",
                "| Cau hinh | Gd1 dung | Cuoi dung | Gd2 sua dung | Gd2 lam hong | Rong | Loi chinh cua cau bi lam hong |",
                "|---|---|---|---|---|---|---|"]
         for m in st:
@@ -172,8 +172,7 @@ def build(out_dir, ref="vsql", refs=None):
     # ---- 6. doc ablation
     def ex(m):
         return 100 * sum(int(res[m][q]["correct"]) for q in qids) / len(qids) if m in res else None
-    pairs = [("V-SQL so voi DIN-SQL", "vsql", "dinsql"), ("V-SQL so voi DAIL-SQL", "vsql", "dailsql"),
-             ("V-SQL+ so voi DIN-SQL", "vsqlplus", "dinsql"), ("V-SQL+ so voi DAIL-SQL", "vsqlplus", "dailsql"),
+    pairs = [("V-SQL so voi DAIL-SQL", "vsql", "dailsql"), ("V-SQL+ so voi DAIL-SQL", "vsqlplus", "dailsql"),
              ("V-SQL+ so voi V-SQL", "vsqlplus", "vsql"),
              ("Huong 1 + prompt moi, dua het view (so voi V-SQL)", "vsqlplus_all", "vsql"),
              ("Huong 2: chon view (so voi dua het view)", "vsqlplus", "vsqlplus_all"),

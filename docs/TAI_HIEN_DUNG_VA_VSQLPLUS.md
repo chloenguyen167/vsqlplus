@@ -34,7 +34,7 @@ chính thức coi là bản chuẩn) thì không. Bản Hugging Face hiện hàn
 ### 1.2 Baseline sai đối tượng
 
 Paper so sánh V-SQL với DIN-SQL, DAIL-SQL và TA-SQL (Bảng 3). Mã cũ không có baseline nào của paper; "baseline" `base` là một prompt
-zero-shot do nhóm tự viết. Mã mới cài lại DIN-SQL và DAIL-SQL theo mã chính thức (mục 2.2b); TA-SQL từng được cài rồi gỡ (mục 2.2).
+zero-shot do nhóm tự viết. Mã mới cài lại DAIL-SQL theo mã chính thức (mục 2.2c); TA-SQL (mục 2.2) và DIN-SQL (mục 2.2b) từng được cài rồi gỡ.
 
 ### 1.3 Vì sao `base` luôn hơn `vsql` trong lần chạy cũ
 
@@ -104,7 +104,7 @@ Kết quả `results_new/ketqua_tasql_vsql_vsqlplus/cmp_qwen35_4b_d2025_mau200/`
 2. **`extract_sql` lấy nhầm chữ "with" trong văn xuôi làm đầu câu SQL** ("To find the league with the most …"). Ở 8/200 câu mô hình
    trả lời bằng văn xuôi: 7 câu không có SQL (trước đây tính là lỗi cú pháp, nay là `no_sql`), 1 câu (uid 160) có câu SQL nằm sau
    đoạn văn mà bản cũ cắt sai. Bản mới bắt đầu từ `SELECT` / `WITH <tên> AS (`. Đã kiểm tra trên cache của các lần chạy: không SQL
-   nháp nào đang đúng bị đổi. Sửa này dùng chung cho V-SQL+, DIN-SQL, DAIL-SQL.
+   nháp nào đang đúng bị đổi. Sửa này dùng chung cho V-SQL+, DAIL-SQL.
 
 **Không phải lỗi cài đặt, giữ nguyên (paper quy định):**
 - **Giai đoạn 2 (Hình 5) làm mất ròng 11 câu** (sửa đúng 6, làm hỏng 17, trong đó 11 câu `no such column`). Mô hình bỏ JOIN cần
@@ -119,9 +119,22 @@ Kết quả `results_new/ketqua_tasql_vsql_vsqlplus/cmp_qwen35_4b_d2025_mau200/`
 đã gộp trong view (vd `FROM v_member JOIN major ON …` dù `v_member` đã có `major_name`). Nhóm này chỉ đúng **5/40 (12,5%)**, so với
 **30/107 (28%)** ở các SQL nháp không JOIN thừa. Hiện bảng tra cứu không có trong paper, nên đã bỏ (mục 2.1).
 
-**Chọn view đưa vào prompt:** chú thích Hình 4 ghi schema là "description of tables related to the query, retrieved from a
-database" nhưng paper không mô tả bước truy hồi nào. View đã được thiết kế từ đáp án của từng CSDL, nên bản tái hiện đưa mọi view
-của CSDL vào prompt, không truy hồi. Prompt giai đoạn 1 trung bình khoảng 8.500 token (ký tự/4), `vsql_fair` cũ khoảng 9.850.
+**Chọn view đưa vào prompt (impl 6, 14/11):** paper có bước chọn view theo từng câu hỏi nhưng không nói cách làm:
+chú thích Hình 4 ("description of tables related to the query, retrieved from a database"), Hình 1 (ô "Relevant Views" chỉ còn
+`v_superhero` trong 3 view), mục 4.4 ("its corresponding view"), mục 6 ("retrieve the correct view description based on the
+user's query"). Bản tái hiện: mỗi đối tượng của D′ (view theo JOIN đáp án + bảng còn lại) là một văn bản gồm tên, tên cột và mô
+tả cột; xếp hạng BM25 với câu hỏi + evidence, giữ **top-4** (`--vsql-topk`, đặt trước bằng `--topk` của V-SQL+, không chỉnh
+theo kết quả). Không dùng SQL đáp án, không embedding (chạy được cả qua API). Đo offline trên 500 câu: độ phủ đủ bảng đáp án
+96,8%, trung bình 3,74 đối tượng/câu (đưa mọi view: 100%, 6,43). Impl 5 (đưa mọi view, không truy hồi; gpt-4o-mini 500 câu:
+46,0%) chỉ còn là số lịch sử.
+
+**Impl 7 (14/11): LLM chọn đối tượng của D′ (`--vsql-select llm`, mặc định).** Lần chạy impl 6 (BM25 top-4, gpt-4o-mini 500
+câu: 44,6%) cho thấy BM25 hay xếp view của bảng con (`v_comments`, `v_qualifying`) trên chính bảng câu hỏi cần (`users`,
+`circuits`): 161/500 câu thiếu đối tượng riêng của một bảng đáp án; trên các câu đó impl 6 đúng 53, impl 5 đúng 63. Impl 7 thêm
+một lần gọi LLM trước giai đoạn 1: prompt tự viết (`P_VSQL_SEL`, không có trong paper) gồm danh mục D′ (mỗi dòng: view + bảng gốc
++ tên cột, hoặc bảng + tên cột; khoảng 700 token) và `{query}` như Hình 4; LLM trả về tên đối tượng, chương trình khớp tên nguyên
+từ; không khớp tên nào thì đưa hết D′ (`sel_fallback`). Hình 4, Hình 5, giai đoạn 2 giữ nguyên. Đây là phần tự thêm: paper chỉ
+có 2 lần gọi LLM và không nói cách "retrieve". `--vsql-select bm25` (impl 6) và `all` (impl 5) vẫn chạy được để đối chiếu.
 
 Ngoài ra, prompt V-SQL dài (trung bình 8.809 token, 7,2 đối tượng schema). TA-SQL chỉ đưa các cột đã liên kết vào bước sinh SQL.
 Hai lần chạy TA-SQL trên cùng 200 câu, cùng model cho 36,0% và 33,0%, nên chênh lệch dưới khoảng 3–5 điểm trên mẫu 200 câu chưa
@@ -145,55 +158,49 @@ Hai lần chạy TA-SQL trên cùng 200 câu, cùng model cho 36,0% và 33,0%, n
 ### 2.2 TA-SQL (đã gỡ khỏi mã)
 
 TA-SQL từng được cài lại theo mã chính thức làm baseline chính của paper. Từ 13/11 nhóm bỏ hẳn TA-SQL khỏi mã (`vsql/tasql_prompts.py`,
-`methods.run_tasql`, tham số `--tasql-meaning`); hai baseline còn lại của Bảng 3 là DIN-SQL và DAIL-SQL (mục 2.2b). Các số liệu TA-SQL trong
+`methods.run_tasql`, tham số `--tasql-meaning`); baseline còn lại trong mã là DAIL-SQL (mục 2.2c). Các số liệu TA-SQL trong
 `results_new/` và trong `docs/NHAN_XET_KET_QUA_QWEN35.md` là số liệu lịch sử; `report` bỏ qua `predictions_tasql.jsonl`.
 
-### 2.2b DIN-SQL (`dinsql`) và DAIL-SQL (`dailsql`) — hai baseline còn lại của Bảng 3
+### 2.2b DIN-SQL (đã gỡ khỏi mã)
 
-Bảng 3 của paper so V-SQL với **DIN-SQL, DAIL-SQL và TA-SQL**. Mục 5.1 ghi: "To ensure fairness, none of the models utilized
-self-consistency or re-modification mechanisms". Paper không ghi cách cài hai phương pháp này cho BIRD, nên dùng mã chính thức
-của chính tác giả mỗi phương pháp, chỉ bỏ hai cơ chế mà paper loại:
+DIN-SQL từng được cài lại theo mã chính thức ([`DIN-SQL_BIRD.py`](https://github.com/MohammadrezaPourreza/Few-shot-NL2SQL-with-prompting/blob/0474801616130413b024fd008b016a190684649e/DIN-SQL_BIRD.py),
+bỏ self-correction như paper). Từ 14/11/2026 nhóm bỏ hẳn DIN-SQL khỏi mã (`vsql/din_prompts.py`, `baselines.run_din`, phương pháp `dinsql`,
+notebook, báo cáo). Các số liệu DIN-SQL trong `results_new/` là số liệu lịch sử; `report` bỏ qua `predictions_dinsql.jsonl`.
 
-| | DIN-SQL | DAIL-SQL |
-|---|---|---|
-| Mã gốc | [`DIN-SQL_BIRD.py`](https://github.com/MohammadrezaPourreza/Few-shot-NL2SQL-with-prompting/blob/0474801616130413b024fd008b016a190684649e/DIN-SQL_BIRD.py) | [`run_for_bird.sh`](https://github.com/BeachWang/DAIL-SQL/blob/2061f68112222083134a0c9e2877961ff315ff44/run_for_bird.sh) |
-| Phiên bản so với thời điểm paper (sau 6/2024) | `DIN-SQL_BIRD.py` chỉ có một commit (7/9/2023), không đổi từ đó | Mã BIRD có từ 28/12/2023–8/1/2024; sau đó chỉ sửa chữ trong lệnh `echo` (3/2025) và thêm file kết quả (6/2024): logic giống bản paper dùng |
-| Các bước | Liên kết schema → phân loại EASY / NON-NESTED / NESTED → sinh SQL theo loại (CoT, nhiều ví dụ) | Schema dạng `CREATE TABLE` (lấy từ `sqlite_master`) + 7 ví dụ câu hỏi–SQL từ tập train BIRD, prompt kết thúc bằng `SELECT ` |
-| Chọn ví dụ | Ví dụ cố định trong prompt | Vòng 1: khoảng cách Euclid giữa embedding câu hỏi đã che tên bảng/cột (`all-mpnet-base-v2`); vòng 2: ưu tiên ví dụ có khung SQL giống khung SQL của câu trả lời vòng 1 (Jaccard ≥ 0,85) |
-| Bỏ theo paper | **Bước tự sửa lỗi** (self-correction) | **Bầu chọn nhiều mẫu** (mã gốc mặc định `n=5`); ở đây 1 mẫu |
-| Lượt gọi LLM / câu | 3 | 2 (vòng 1 chỉ để lấy khung SQL) |
-| Prompt | `vsql/din_prompts.py`, trích tự động nguyên văn từ file gốc | Chép nguyên văn các mẫu `SQLPrompt` + `QuestionSqlExampleStyle` |
+### 2.2c DAIL-SQL (`dailsql`) — baseline còn lại của Bảng 3
 
-Chung với mọi phương pháp: nhiệt độ 0, tối đa 800 token (paper), evidence của BIRD (DIN-SQL đưa vào dòng `Hint:`, DAIL-SQL nối
-vào sau câu hỏi như `bird_pre_process(with_evidence=True)`).
+Bảng 3 của paper so V-SQL với **DIN-SQL, DAIL-SQL và TA-SQL**; mã hiện chỉ giữ DAIL-SQL. Mục 5.1 ghi: "To ensure fairness, none of
+the models utilized self-consistency or re-modification mechanisms". Paper không ghi cách cài DAIL-SQL cho BIRD, nên dùng mã chính
+thức của tác giả DAIL-SQL, chỉ bỏ cơ chế mà paper loại:
 
-**Điểm khác buộc phải có:**
-- **DIN-SQL:** mã gốc dựng schema bằng LangChain `SQLDatabase.get_table_info` (CREATE TABLE + 3 dòng mẫu). Ở đây dựng lại đúng
-  định dạng đó bằng SQLAlchemy (thư viện mà LangChain dùng bên dưới), không cài LangChain. File mô tả cột đọc theo thứ tự tên
-  file (mã gốc dùng `glob`, thứ tự không cố định). Nếu không đọc được nhãn phân loại, mã gốc báo lỗi; ở đây đi vào nhánh NESTED
-  (nhánh cuối của mã gốc).
-- **DAIL-SQL:** mã gốc che tên schema trong câu hỏi bằng Stanford CoreNLP (server Java) + GloVe; ở đây dùng **spaCy
-  `en_core_web_sm`** để tách từ và lấy lemma, thuật toán khớp n-gram (`compute_schema_linking`, `match_shift`) chép nguyên văn.
-  Thư viện `sql_metadata` phải là bản 2.x (bản 3.x đổi API, làm hỏng hàm tạo khung SQL). Tập train lấy đúng 2 file
-  `train.json`, `train_tables.json` trong `train.zip` chính thức (đọc bằng HTTP Range, kiểm tra md5), không tải cả 8,9 GB.
-- **Cả hai:** mô hình chat hay bọc SQL trong ```` ```sql ````; nếu có khối code thì lấy SQL trong khối đó, rồi hậu xử lý như
-  mã gốc.
+| | DAIL-SQL |
+|---|---|
+| Mã gốc | [`run_for_bird.sh`](https://github.com/BeachWang/DAIL-SQL/blob/2061f68112222083134a0c9e2877961ff315ff44/run_for_bird.sh) |
+| Phiên bản so với thời điểm paper (sau 6/2024) | Mã BIRD có từ 28/12/2023–8/1/2024; sau đó chỉ sửa chữ trong lệnh `echo` (3/2025) và thêm file kết quả (6/2024): logic giống bản paper dùng |
+| Các bước | Schema dạng `CREATE TABLE` (lấy từ `sqlite_master`) + 7 ví dụ câu hỏi–SQL từ tập train BIRD, prompt kết thúc bằng `SELECT ` |
+| Chọn ví dụ | Vòng 1: khoảng cách Euclid giữa embedding câu hỏi đã che tên bảng/cột (`all-mpnet-base-v2`); vòng 2: ưu tiên ví dụ có khung SQL giống khung SQL của câu trả lời vòng 1 (Jaccard ≥ 0,85) |
+| Bỏ theo paper | **Bầu chọn nhiều mẫu** (mã gốc mặc định `n=5`); ở đây 1 mẫu |
+| Lượt gọi LLM / câu | 2 (vòng 1 chỉ để lấy khung SQL) |
+| Prompt | Chép nguyên văn các mẫu `SQLPrompt` + `QuestionSqlExampleStyle` |
 
-**Lỗi trích câu trả lời của DIN-SQL (sửa 13/11, `dinsql` impl 2).** Mã gốc chỉ đọc phần sau `SQL:` (GPT-4 luôn viết đúng định dạng này).
-qwen3.5:4b thường trả thẳng câu `SELECT` hoặc khối ```` ```sql ````, nên 73/200 câu trong `cmp_qwen35_4b_d2025_mau200` bị ghi thành placeholder
-`SELECT * FROM table` (39,5% lỗi cú pháp của DIN-SQL là do đây). Nay không thấy `SQL:` thì lấy SQL từ câu trả lời (`extract_sql`); không có SQL
-thì mới dùng placeholder. Phát lại từ cache (không gọi LLM): trong 53 câu phát lại được có 43 câu chứa SQL, 15 câu đúng; ước lượng DIN-SQL tăng
-khoảng 10 điểm (29,5% lên khoảng 40%). Con số 29,5% của DIN-SQL trong các thư mục kết quả cũ vì vậy bị đánh giá thấp.
+Chung với mọi phương pháp: nhiệt độ 0, tối đa 800 token (paper), evidence của BIRD (DAIL-SQL nối vào sau câu hỏi như
+`bird_pre_process(with_evidence=True)`).
+
+**Điểm khác buộc phải có:** mã gốc che tên schema trong câu hỏi bằng Stanford CoreNLP (server Java) + GloVe; ở đây dùng **spaCy
+`en_core_web_sm`** để tách từ và lấy lemma, thuật toán khớp n-gram (`compute_schema_linking`, `match_shift`) chép nguyên văn.
+Thư viện `sql_metadata` phải là bản 2.x (bản 3.x đổi API, làm hỏng hàm tạo khung SQL). Tập train lấy đúng 2 file `train.json`,
+`train_tables.json` trong `train.zip` chính thức (đọc bằng HTTP Range, kiểm tra md5), không tải cả 8,9 GB. Mô hình chat hay bọc SQL
+trong ```` ```sql ````; nếu có khối code thì lấy SQL trong khối đó, rồi hậu xử lý như mã gốc.
 
 ### 2.3 Phạm vi so sánh
 
-So sánh chính: **V-SQL, V-SQL+** với **DIN-SQL, DAIL-SQL** (tùy chọn trong notebook).
+So sánh chính: **V-SQL, V-SQL+** với **DAIL-SQL** (tùy chọn trong notebook).
 Trong paper, V-SQL hơn DIN-SQL và DAIL-SQL từ 3 đến 9 điểm ở cả ba model.
 
 ### 2.4 Chấm điểm
 
 EX theo định nghĩa của BIRD (so tập dòng kết quả), timeout 30 giây. Mỗi cặp phương pháp được so ghép cặp trên cùng 500 câu
-bằng kiểm định McNemar chính xác, hiệu chỉnh Holm, kèm khoảng tin cậy bootstrap 95% của ΔEX. Báo cáo so với `dinsql`, `dailsql`
+bằng kiểm định McNemar chính xác, hiệu chỉnh Holm, kèm khoảng tin cậy bootstrap 95% của ΔEX. Báo cáo so với `dailsql`
 và `vsql`.
 
 ---
@@ -303,5 +310,5 @@ python tests/test_compare.py                                                    
 
 - **Chưa có số EX nào cho cấu hình mới**: cần chạy trên Colab. Không có số nào trong tài liệu này là kết quả của mã mới trên BIRD.
 - View của `vsql` nhìn SQL đáp án của chính tập đánh giá, như paper làm, nên `vsql` có lợi thế mà V-SQL+ (view tự động) không có.
-- Số tuyệt đối không so được với Bảng 3 của paper (khác model). Điều so được là thứ tự và độ chênh giữa V-SQL, DIN-SQL, DAIL-SQL và
+- Số tuyệt đối không so được với Bảng 3 của paper (khác model). Điều so được là thứ tự và độ chênh giữa V-SQL, DAIL-SQL và
   V-SQL+ trên cùng một model.

@@ -3,8 +3,12 @@
   vsql      : V-SQL tai hien (ban duy nhat), sat paper nhat co the:
               - view thiet ke tu cac phep JOIN cua SQL dap an (muc 6), kieu Hinh 3 (alias = ten bang, bo cot id khoa ngoai
                 da thay bang gia tri); D' = cac view + bang khong nam trong view nao (muc 4.1: D' thay cho D);
-              - giai doan 1: prompt Hinh 4 nguyen van, {relevant_db_schema} = toan bo D' cua CSDL (view da thiet ke theo
-                JOIN dap an cua chinh CSDL do; KHONG co buoc truy hoi / chon view nao);
+              - giai doan 1: prompt Hinh 4 nguyen van, {relevant_db_schema} = cac doi tuong cua D' "related to the query,
+                retrieved from a database" (chu thich Hinh 4; Hinh 1 "Relevant Views"; muc 6 "retrieve the correct view
+                description based on the user's query"). Paper khong noi cach chon -> --vsql-select:
+                llm (mac dinh): them 1 lan goi LLM, dua danh muc D' (ten + cot) va cau hoi, LLM tra ve ten view/bang can
+                dung; bm25: xep hang BM25 voi cau hoi + evidence, giu top-k (--vsql-topk); all: dua het D'.
+                Khong cach nao nhin SQL dap an;
               - giai doan 2: luon chay (paper mo ta khung 2 giai doan, dummy SQL khong duoc thuc thi), prompt Hinh 5
                 nguyen van ({db_type} = SQLite), bang lien quan theo dinh nghia view ma dummy SQL dung (muc 4.5).
               Paper khong noi cach trinh bay schema trong prompt: Bang 6 them mo ta gia tri + gia tri mau,
@@ -33,7 +37,7 @@ from .llm import extract_sql
 from .meta import Descriptions, load_tables_json, table6_table, table6_view, table_ddl
 
 NOTES = {
-    "vsql": "V-SQL theo paper: view Hinh 3 theo JOIN dap an; D' = ORACLE: chi view co bang goc nam trong SQL dap an (+ bang con lai ma dap an dung), prompt Hinh 4 + Hinh 5",
+    "vsql": "V-SQL theo paper: view Hinh 3 theo JOIN dap an, D' chon theo cau hoi (mac dinh LLM chon), prompt Hinh 4 + Hinh 5",
     "vsqlplus": "V-SQL+ = huong 1 (sinh view tu dong) + huong 2 (chon view bang truy hoi lai); giai doan 2 nhu paper",
     "vsqlplus_all": "Chi huong 1: view tu dong, dua het view vao prompt (khong chon view)",
     "vsqlplus_novote": "V-SQL+ bo bau chon nhieu mau (huong 2)",
@@ -41,25 +45,17 @@ NOTES = {
     "vsqlplus_nofb": "V-SQL+ bo schema lai (huong 2)",
     "vsqlplus_det": "V-SQL+ thay giai doan 2 bang giai ma tat dinh (ngoai de xuat, de doi chieu)",
     "vsqlplus_fig4": "V-SQL+ chi 2 huong (view tu dong + chon view); gd1/gd2 cung template + schema nhu vsql",
-    "dinsql": "DIN-SQL (baseline Bang 3): schema linking -> phan loai -> sinh SQL theo loai; bo self-correction nhu paper",
     "dailsql": "DAIL-SQL (baseline Bang 3): schema CREATE TABLE + 7 vi du train BIRD chon 2 vong; 1 mau, khong bau chon nhu paper",
 }
-EXTRA = ["vsqlplus_fig4", "dinsql", "dailsql"]           # chay khi chon rieng (notebook: tick o tuong ung)
-MAIN = ["vsql", "vsqlplus"]                               # so sanh chinh: V-SQL, V-SQL+ (DIN-SQL, DAIL-SQL: tick rieng)
+EXTRA = ["vsqlplus_fig4", "dailsql"]           # chay khi chon rieng (notebook: tick o tuong ung)
+MAIN = ["vsql", "vsqlplus"]                               # so sanh chinh: V-SQL, V-SQL+ (DAIL-SQL: tick rieng)
 ABLATIONS = ["vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl", "vsqlplus_nofb", "vsqlplus_det"]
 # phien ban cai dat cua tung phuong phap (ghi vao moi ban ghi). Doi cach cai dat thi tang so: ban ghi cu trong thu muc ket qua
 # (vd predictions_vsql.jsonl cua ban V-SQL cu) bi tach ra old_predictions_*.jsonl va cham lai (cau tra loi LLM con trong cache).
-IMPL = {"vsql": 6, "dinsql": 3, **{m: 2 for m in ["vsqlplus", "vsqlplus_fig4", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl",
+IMPL = {"vsql": 7, **{m: 2 for m in ["vsqlplus", "vsqlplus_fig4", "vsqlplus_all", "vsqlplus_novote", "vsqlplus_novl",
                                      "vsqlplus_nofb"]}}       # 13/11: Hinh 4/5 chinh lai dung tung chu -> prompt gd2 doi
-# vsql: impl 6 = --vsql-views oracle (mac dinh tu 14/11); impl 5 = --vsql-views all (D' = moi view cua CSDL, nhu truoc)
-VSQL_NOTE_ORACLE = NOTES["vsql"]
-VSQL_NOTE_ALL = "V-SQL theo paper: view Hinh 3 theo JOIN dap an, D' = moi view cua CSDL, prompt Hinh 4 + Hinh 5"
-
-
-def set_vsql_views(mode):
-    """--vsql-views: oracle (impl 6) | all (impl 5, ket qua cu van dung lai duoc). Doi IMPL/NOTES de tach ban ghi va ghi
-    dung mo ta trong summary.md."""
-    IMPL["vsql"], NOTES["vsql"] = (5, VSQL_NOTE_ALL) if mode == "all" else (6, VSQL_NOTE_ORACLE)
+# vsql 6 (14/11): D' khong con la moi view; truy hoi top-k doi tuong theo cau hoi (BM25)
+# vsql 7 (14/11): mac dinh LLM chon doi tuong cua D' (--vsql-select llm); bm25 / all giu lai de doi chieu
 
 # --------------------------------------------------------------------------- prompt
 # V-SQL, Hinh 4 cua paper (nguyen van). Evidence cua BIRD (neu dung) nam trong {query}, khong them muc nao vao template.
@@ -101,6 +97,22 @@ Question: {query}
 ```sql
 {{sql}}
 ```"""
+
+# V-SQL, buoc chon doi tuong cua D' bang LLM (--vsql-select llm). KHONG co trong paper: paper chi noi schema o Hinh 4 la
+# "description of tables related to the query, retrieved from a database". Danh muc chi gom ten + cot (khong mo ta) cho ngan.
+P_VSQL_SEL = """# target
+You are an experienced database administrator. Select the views and tables in "db objects" that are needed to answer "question" by sql.
+notice:
+1. A view `v_<t>` has exactly one row per row of table <t> and adds columns taken from related tables.
+2. Select every object the sql needs, and no others.
+3. Answer with the object names only, one per line, without explanation.
+
+# db objects
+{catalog}
+
+# question
+{query}"""
+
 
 P_PLUS = """# target
 You are an experienced database administrator, please answer "question" by ONE SQLite query with no explanation.
@@ -307,34 +319,84 @@ class Render6:
         return "\n".join([f"# view: {v.name}", self._head()] + [" | ".join(r) for r in rows])
 
 
-def vsql_schema(ctx, item, mode="oracle"):
-    """D' cua V-SQL -> (views, bang goc).
-    all: moi view cua CSDL + bang goc khong bi view thay the (impl 5).
-    oracle: chu thich Hinh 4 ("db_schema represents the description of tables related to the query, retrieved from a
-    database") va muc 6 ("retrieve the correct view description based on the user's query") -> prompt chi chua view lien
-    quan toi cau hoi. Paper khong noi cach truy hoi; o day dung SQL dap an (oracle, can tren): view co bang goc (base) nam
-    trong SQL dap an + bang con lai cua D' ma dap an dung + bang dap an chua view nao da chon phu (vd bang tra cuu dung rieng)."""
+def vsql_dprime(ctx):
+    """D' = moi view (theo JOIN dap an) + bang goc khong bi view thay the."""
     views = ctx.oracle
-    tabs = V.leftover_tables(ctx.schema, views)
-    if mode == "all":
-        return views, tabs
-    gold = tables_in_sql(item["SQL"], ctx.schema)
-    views = [v for v in views if v.base in gold]
-    tabs = [t for t in tabs if t in gold]
-    covered = set(tabs).union(*[v.source_tables() for v in views])
-    tabs += [t for t in ctx.schema.tables if t in gold and t not in covered]
-    return views, tabs
+    return views, V.leftover_tables(ctx.schema, views)
+
+
+def vsql_catalog(ctx):
+    """Danh muc D' cho buoc LLM chon: moi dong 1 doi tuong, ten + bang goc (voi view) + ten cot."""
+    views, tabs = vsql_dprime(ctx)
+    lines = [f"view {v.name} (rows of table {v.base}): " + ", ".join(qi(c.name) for c in v.cols) for v in views]
+    lines += [f"table {t}: " + ", ".join(qi(c.name) for c in ctx.schema.tables[t].columns) for t in tabs]
+    return "\n".join(lines)
+
+
+def parse_selection(text, names):
+    """Ten doi tuong LLM chon (so khop nguyen tu, khong phan biet hoa thuong; ten dai truoc de v_x khong bi x an mat)."""
+    low = (text or "").lower()
+    got = set()
+    for n in sorted(names, key=len, reverse=True):
+        pat = r"(?<![\w])" + re.escape(n.lower()) + r"(?![\w])"
+        if re.search(pat, low):
+            got.add(n)
+            low = re.sub(pat, " ", low)
+    return [n for n in names if n in got]
+
+
+def vsql_objects(ctx, item, k, mode="bm25", ask=None, args=None, rec=None):
+    """Chon doi tuong cua D' dua vao prompt Hinh 4 (chu thich Hinh 4: "tables related to the query, retrieved from a
+    database"). Khong dung SQL dap an.
+      all : giu het D'.
+      bm25: moi doi tuong la mot van ban (ten + ten cot + mo ta cot); xep hang BM25 voi cau hoi + evidence, giu k doi tuong
+            dau (doi tuong khong khop tu nao xep sau theo thu tu goc).
+      llm : 1 lan goi LLM (P_VSQL_SEL) voi danh muc D' + cau hoi (cung {query} nhu Hinh 4); LLM tra loi khong khop ten nao
+            -> giu het D' (ghi rec["sel_fallback"]).
+    CSDL chi co 1 doi tuong: giu nguyen, khong goi LLM."""
+    views, tabs = vsql_dprime(ctx)
+    names = [v.name for v in views] + tabs
+    if mode == "all" or len(names) <= 1 or (mode == "bm25" and len(names) <= k):
+        return views, tabs, names
+    if mode == "llm":
+        txt = ask(P_VSQL_SEL.format(catalog=ctx.lazy("vsql_catalog", lambda: vsql_catalog(ctx)),
+                                    query=vsql_query(item, args)), "vsql_sel")
+        keep = parse_selection(txt, names)
+        if rec is not None:
+            rec["sel_raw"] = (txt or "")[:300]
+            if not keep:
+                rec["sel_fallback"] = True
+        if not keep:
+            return views, tabs, names
+        keep = set(keep)
+        return [v for v in views if v.name in keep], [t for t in tabs if t in keep], names
+
+    def index():
+        d, items = ctx.desc, []
+        for v in views:
+            items.append((v.name, " ".join([v.name] + [f"{c.name} {d.text(c.table, c.col)}" for c in v.cols])))
+        for t in tabs:
+            items.append((t, " ".join([t] + [f"{c.name} {d.text(t, c.name)}" for c in ctx.schema.tables[t].columns])))
+        return HybridIndex(items, None)
+    q = item["question"] + " " + (item.get("evidence") or "")
+    sc = ctx.lazy("vsql_index", index).rank(q)
+    order = sorted(names, key=lambda o: (-sc.get(o, 0.0), names.index(o)))
+    keep = set(order[:k])
+    return [v for v in views if v.name in keep], [t for t in tabs if t in keep], order
 
 
 def run_vsql(item, ctx, ask, rec, args):
-    """V-SQL: {relevant_db_schema} = D' cua CSDL = moi view (thiet ke theo JOIN dap an) + bang goc khong bi view thay the
-    (chi bang goc cua view va bang tra cuu id + 1 cot gia tri nhu colour/gender moi bien mat, Hinh 1(A)); trinh bay Bang 6 mo
-    rong; prompt Hinh 4; giai doan 2 luon chay voi prompt Hinh 5, "relevant table schemas" = bang ma dummy SQL dung cot (muc
-    4.5). Khong co buoc truy hoi / chon view."""
-    views, tabs = vsql_schema(ctx, item, getattr(args, "vsql_views", "oracle"))
+    """V-SQL: {relevant_db_schema} = cac doi tuong cua D' chon theo cau hoi (vsql_objects, --vsql-select; D' = view thiet ke
+    theo JOIN dap an + bang goc khong bi view thay the, chi bang goc cua view va bang tra cuu id + 1 cot gia tri nhu
+    colour/gender moi bien mat, Hinh 1(A)); trinh bay Bang 6 mo rong; prompt Hinh 4; giai doan 2 luon chay voi prompt
+    Hinh 5, "relevant table schemas" = bang ma dummy SQL dung cot (muc 4.5)."""
+    mode = getattr(args, "vsql_select", "llm")
+    views, tabs, _ = vsql_objects(ctx, item, args.vsql_topk, mode, ask, args, rec)
+    rec["vsql_select"] = mode
     r6 = Render6(ctx, extended=True)
     parts = [r6.view(v) for v in views] + [r6.table(t) for t in tabs]
     rec["n_objects"] = len(views) + len(tabs)
+    rec["objects"] = [v.name for v in views] + list(tabs)
     rec["schema_tables"] = sorted(set(tabs).union(*[v.source_tables() for v in views]))
     p1 = P_VSQL_1.format(relevant_db_schema="\n\n".join(parts), query=vsql_query(item, args))
     dummy = rec["dummy_sql"] = clean(ask(p1, "vsql_s1"))
@@ -606,8 +668,6 @@ def run_item(method, item, ctx, llm, args):
     ask = Asker(llm, rec, item["uid"])
     if method == "vsql":
         final = run_vsql(item, ctx, ask, rec, args)
-    elif method == "dinsql":
-        final = B.run_din(item, ctx, ask, rec, args)
     elif method == "dailsql":
         final = B.run_dail(item, ctx, ask, rec, args)
     elif method.startswith("vsqlplus"):
@@ -632,9 +692,6 @@ def add_stage_info(rec, item, ctx):
     rieng giai doan 1 va giai doan 2.
     gold_tables = so bang trong SQL dap an (de xem diem manh/yeu theo do phuc tap)."""
     rec["gold_tables"] = len(tables_in_sql(item["SQL"], ctx.schema))
-    if rec["method"] == "dinsql":                   # DIN-SQL: mot lan sinh SQL, khong co ban nhap de tach giai doan
-        rec["stage1_sql"] = None
-        return rec
     if rec["method"] == "dailsql":                  # DAIL-SQL: "giai doan 1" = SQL vong 1 (truoc khi chon lai vi du theo khung SQL)
         rec["stage1_sql"] = rec.get("dail_pre_sql") or ""
         return rec
@@ -671,4 +728,4 @@ def score_stage1(rec, gold_rows, db_path, timeout):
     return rec
 
 
-__all__ = ["DbCtx", "run_item", "set_vsql_views", "vsql_schema", "score", "add_stage_info", "score_stage1", "NOTES", "MAIN", "ABLATIONS", "IMPL", "load_tables_json"]
+__all__ = ["DbCtx", "run_item", "score", "add_stage_info", "score_stage1", "NOTES", "MAIN", "ABLATIONS", "IMPL", "load_tables_json"]

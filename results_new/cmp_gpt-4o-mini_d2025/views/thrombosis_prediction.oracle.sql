@@ -1,0 +1,82 @@
+-- origin=oracle row_preserving=True check=rows_equal
+create view v_Examination as
+select
+   `Examination`.`ID`,
+   `Patient`.`SEX`,
+   `Patient`.`Birthday`,
+   `Patient`.`Description`,
+   `Patient`.`First Date`,
+   `Patient`.`Admission`,
+   `Patient`.`Diagnosis` as `Patient_Diagnosis`,
+   `Examination`.`Examination Date`,
+   `Examination`.`aCL IgG`,
+   `Examination`.`aCL IgM`,
+   `Examination`.`ANA`,
+   `Examination`.`ANA Pattern`,
+   `Examination`.`aCL IgA`,
+   `Examination`.`Diagnosis`,
+   `Examination`.`KCT`,
+   `Examination`.`RVVT`,
+   `Examination`.`LAC`,
+   `Examination`.`Symptoms`,
+   `Examination`.`Thrombosis`
+from
+   `Examination`
+left join `Patient` on `Examination`.`ID` = `Patient`.`ID`
+
+-- origin=oracle row_preserving=True check=rows_equal
+create view v_Laboratory as
+select
+   `Laboratory`.`ID`,
+   `Patient`.`SEX`,
+   `Patient`.`Birthday`,
+   `Patient`.`Description`,
+   `Patient`.`First Date`,
+   `Patient`.`Admission`,
+   `Patient`.`Diagnosis`,
+   `Laboratory`.`Date`,
+   `Laboratory`.`GOT`,
+   `Laboratory`.`GPT`,
+   `Laboratory`.`LDH`,
+   `Laboratory`.`ALP`,
+   `Laboratory`.`TP`,
+   `Laboratory`.`ALB`,
+   `Laboratory`.`UA`,
+   `Laboratory`.`UN`,
+   `Laboratory`.`CRE`,
+   `Laboratory`.`T-BIL`,
+   `Laboratory`.`T-CHO`,
+   `Laboratory`.`TG`,
+   `Laboratory`.`CPK`,
+   `Laboratory`.`GLU`,
+   `Laboratory`.`WBC`,
+   `Laboratory`.`RBC`,
+   `Laboratory`.`HGB`,
+   `Laboratory`.`HCT`,
+   `Laboratory`.`PLT`,
+   `Laboratory`.`PT`,
+   `Laboratory`.`APTT`,
+   `Laboratory`.`FG`,
+   `Laboratory`.`PIC`,
+   `Laboratory`.`TAT`,
+   `Laboratory`.`TAT2`,
+   `Laboratory`.`U-PRO`,
+   `Laboratory`.`IGG`,
+   `Laboratory`.`IGA`,
+   `Laboratory`.`IGM`,
+   `Laboratory`.`CRP`,
+   `Laboratory`.`RA`,
+   `Laboratory`.`RF`,
+   `Laboratory`.`C3`,
+   `Laboratory`.`C4`,
+   `Laboratory`.`RNP`,
+   `Laboratory`.`SM`,
+   `Laboratory`.`SC170`,
+   `Laboratory`.`SSA`,
+   `Laboratory`.`SSB`,
+   `Laboratory`.`CENTROMEA`,
+   `Laboratory`.`DNA`,
+   `Laboratory`.`DNA-II`
+from
+   `Laboratory`
+left join `Patient` on `Laboratory`.`ID` = `Patient`.`ID`

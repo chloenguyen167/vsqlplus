@@ -13,3 +13,6 @@ results/
 docs/*.pdf
 docs/*.docx
 report/
+
+# API key (khong bao gio commit)
+.env

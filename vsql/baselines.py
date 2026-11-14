@@ -1,18 +1,15 @@
-"""DIN-SQL va DAIL-SQL: hai baseline con lai trong Bang 3 cua paper V-SQL.
+"""DAIL-SQL: baseline trong Bang 3 cua paper V-SQL.
 
 Paper (muc 5.1): "To ensure fairness, none of the models utilized self-consistency or re-modification mechanisms" ->
-  - DIN-SQL: schema linking -> phan loai (EASY / NON-NESTED / NESTED) -> sinh SQL theo loai; BO buoc self-correction.
   - DAIL-SQL: cau hinh BIRD cua ma chinh thuc (run_for_bird.sh): bieu dien schema kieu code (CREATE TABLE), 7 vi du
     cap cau hoi-SQL tu tap train BIRD, chon vi du 2 vong (vong 1: do giong cau hoi da che ten schema; vong 2: them do
     giong khung SQL cua cau tra loi vong 1, nguong 0.85); chi 1 mau o nhiet do 0 (ma goc mac dinh n=5 bau chon -> bo).
 Nhiet do 0, toi da `--num-predict` token (paper: 800 cho moi phuong phap).
 
 Ma goc:
-  DIN-SQL  https://github.com/MohammadrezaPourreza/Few-shot-NL2SQL-with-prompting (DIN-SQL_BIRD.py, MIT)
   DAIL-SQL https://github.com/BeachWang/DAIL-SQL (Apache-2.0); sql_normalization / sql2skeleton / jaccard_similarity /
            compute_schema_linking / match_shift / mask duoi day chep tu utils/ cua repo nay.
-Diem khac bat buoc (ghi ro trong docs): DIN-SQL dung SQLAlchemy de dung lai dung dinh dang LangChain SQLDatabase.get_table_info
-(CREATE TABLE + 3 dong mau) thay vi cai LangChain; DAIL-SQL dung spaCy thay Stanford CoreNLP (server Java) de tach tu va
+Diem khac bat buoc (ghi ro trong docs): DAIL-SQL dung spaCy thay Stanford CoreNLP (server Java) de tach tu va
 lay lemma khi che ten schema trong cau hoi.
 """
 import collections
@@ -24,7 +21,6 @@ import re
 import string
 from pathlib import Path
 
-from . import din_prompts as DP
 from .llm import extract_sql
 
 
@@ -36,103 +32,6 @@ def _first_sql(text):
     """Chuan hoa dau ra giong cac phuong phap khac: mo hinh chat hay boc SQL trong ```sql```; neu co khoi code thi lay khoi do."""
     text = _strip_think(text)
     return extract_sql(text) if "```" in text else text
-
-
-# =========================================================================== DIN-SQL
-def din_schema(db_path, n_rows=3):
-    """Nhu LangChain SQLDatabase.from_uri(...).get_table_info_no_throw() voi _sample_rows_in_table_info = 3:
-    CREATE TABLE (SQLAlchemy) + '/*\\n3 rows from <t> table:\\n<cot>\\n<dong>\\n*/', gia tri cat 100 ky tu, noi bang '\\n\\n'."""
-    from sqlalchemy import MetaData, create_engine, inspect, select
-    from sqlalchemy.schema import CreateTable
-    eng = create_engine(f"sqlite:///{db_path}")
-    md = MetaData()
-    md.reflect(bind=eng)
-    usable = set(inspect(eng).get_table_names())
-    out = []
-    with eng.connect() as con:
-        for t in md.sorted_tables:
-            if t.name not in usable or t.name.startswith("sqlite_"):
-                continue
-            info = str(CreateTable(t).compile(eng)).rstrip() + "\n\n/*"
-            cols = "\t".join(c.name for c in t.columns)
-            try:
-                rows = [[str(v)[:100] for v in r] for r in con.execute(select(t).limit(n_rows))]
-            except Exception:  # noqa: BLE001 - LangChain bat ProgrammingError -> chuoi rong
-                rows = []
-            info += f"\n{n_rows} rows from {t.name} table:\n{cols}\n" + "\n".join("\t".join(r) for r in rows) + "\n*/"
-            out.append(info)
-    eng.dispose()
-    return "\n\n".join(out)
-
-
-def din_descriptions(db_dir):
-    """table_descriptions_parser cua DIN-SQL_BIRD.py (doc database_description/*.csv bang pandas, latin-1).
-    Ban goc duyet glob khong sap xep; o day sap xep ten file de tai lap duoc."""
-    import pandas as pd
-    out = ""
-    for fp in sorted(glob.glob(f"{db_dir}/database_description/*.csv")):
-        out += f"Table: {os.path.basename(fp).replace('.csv', '')}\n"
-        df = pd.read_csv(fp, encoding="latin-1")
-        for _, row in df.iterrows():
-            try:
-                if pd.notna(row.iloc[2]):
-                    cd = re.sub(r"\s+", " ", str(row.iloc[2]))
-                    vd = re.sub(r"\s+", " ", str(row.iloc[4]))
-                    if pd.notna(row.iloc[4]):
-                        out += f"Column {row.iloc[0]}: column description -> {cd}, value description -> {vd}\n"
-                    else:
-                        out += f"Column {row.iloc[0]}: column description -> {cd}\n"
-            except Exception:  # noqa: BLE001 - nhu ban goc
-                out += "No column description"
-        out += "\n"
-    return out
-
-
-def _din_links(text):
-    m = re.search(r"Schema_links:\s*\[(.*?)\]", text)
-    return [x.strip() for x in m.group(1).split(",")] if m else []
-
-
-def _din_label(text):
-    lm = re.search(r'Label:\s*"(.*?)"', text)
-    sm = re.search(r"sub_questions:\s*\[(.*?)\]", text)
-    return (lm.group(1) if lm else None), ([x.strip() for x in sm.group(1).split(",")] if sm else [])
-
-
-def _din_sql(text):
-    m = re.search(r"SQL:\s*(.*?)$", text, re.DOTALL)
-    return m.group(1).strip() if m else None
-
-
-def run_din(item, ctx, ask, rec, args):
-    schema = ctx.lazy("din_schema", lambda: din_schema(ctx.path))
-    cdesc = ctx.lazy("din_desc", lambda: din_descriptions(str(Path(ctx.path).parent)))
-    q = item["question"]
-    hint = str(item.get("evidence") or "") if args.evidence else ""
-    kw = dict(schema=schema, columns_descriptions=cdesc, question=q, hint=hint)
-    sl = _strip_think(ask(DP.HUMAN_SCHEMA_LINKING_TEMPLATE.format(**kw), "din_link",
-                          system=DP.SYSTEM_SCHEMA_LINKING_TEMPLATE))
-    links = _din_links(sl)
-    rec["schema_links"] = links
-    cls = _strip_think(ask(DP.HUMAN_CLASSIFICATION_TEMPLATE.format(schema_links=links, **kw), "din_class",
-                           system=DP.SYSTEM_CLASSIFICATION_TEMPLATE))
-    label, subs = _din_label(cls)
-    rec["din_label"] = label
-    # ban goc: `"EASY" in label` (label None thi loi) -> o day label None di vao nhanh cuoi (NESTED) nhu moi nhan khac
-    if label and "EASY" in label:
-        out = ask(DP.HUMAN_EASY_CLASS_TEMPLATE.format(schema_links=links, **kw), "din_easy", system=DP.SYSTEM_EASY_CLASS_TEMPLATE)
-    elif label and "NON-NESTED" in label:
-        out = ask(DP.HUMAN_NON_NESTED_CLASS_TEMPLATE.format(schema_links=links, **kw), "din_nonnested",
-                  system=DP.SYSTEM_NON_NESTED_CLASS_TEMPLATE)
-    else:
-        out = ask(DP.HUMAN_NESTED_CLASS_TEMPLATE.format(schema_links=links, sub_questions=subs, **kw), "din_nested",
-                  system=DP.SYSTEM_NESTED_CLASS_TEMPLATE)
-    out = _strip_think(out)
-    sql = _din_sql(out)                         # nhu ban goc: chi doc phan sau "SQL:"
-    if sql is None:
-        return "SELECT * FROM table"            # nhu ban goc: khong sinh duoc SQL -> placeholder
-    sql = _first_sql(sql) if "```" in sql else sql
-    return sql.replace("\n", " ").replace("\r", "")
 
 
 # =========================================================================== DAIL-SQL

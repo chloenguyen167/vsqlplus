@@ -1,9 +1,9 @@
-# Tái hiện V-SQL, so sánh với DIN-SQL / DAIL-SQL và cải tiến V-SQL+ trên BIRD mini-dev
+# Tái hiện V-SQL, so sánh với DAIL-SQL và cải tiến V-SQL+ trên BIRD mini-dev
 
 [![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb)
 
-Mã nguồn tái hiện paper **V-SQL: A View-based Two-stage Text-to-SQL Framework** (2024), so sánh với hai baseline
-**DIN-SQL** và **DAIL-SQL** của Bảng 3, và đề xuất cải tiến **V-SQL+**. Thực nghiệm chạy trên **BIRD mini-dev** (500 câu,
+Mã nguồn tái hiện paper **V-SQL: A View-based Two-stage Text-to-SQL Framework** (2024), so sánh với baseline
+**DAIL-SQL** của Bảng 3, và đề xuất cải tiến **V-SQL+**. Thực nghiệm chạy trên **BIRD mini-dev** (500 câu,
 11 CSDL) với các model Qwen mã nguồn mở qua **Ollama trên Google Colab (GPU T4)**.
 
 Chỉ dùng thư viện chuẩn của Python ≥ 3.8; không cần `pip install`.
@@ -29,16 +29,15 @@ Hướng dẫn chi tiết từng bước, giải thích mọi lựa chọn ở B
 
 ## Các phương pháp
 
-**Notebook Colab chạy:** `vsql` (**V-SQL**), `vsqlplus` (**V-SQL+**), tùy chọn `dinsql`, `dailsql`.
-Tick `dinsql`, `dailsql` để chạy hai baseline của Bảng 3. Bật ô `ABLATION` để chạy thêm 5 biến thể của V-SQL+. `vsqlplus_fig4` chỉ chạy được bằng dòng lệnh (`run_compare.py --methods ...`).
+**Notebook Colab chạy:** `vsql` (**V-SQL**), `vsqlplus` (**V-SQL+**), tùy chọn `dailsql`.
+Tick `dailsql` để chạy baseline của Bảng 3. Bật ô `ABLATION` để chạy thêm 5 biến thể của V-SQL+. `vsqlplus_fig4` chỉ chạy được bằng dòng lệnh (`run_compare.py --methods ...`).
 `summary.md` luôn có thêm bảng tách giai đoạn 1 / 2 và bảng EX theo CSDL, theo số bảng trong SQL đáp án (không tốn thêm lượt gọi LLM).
 
 | Phương pháp | Mô tả | Lượt gọi LLM/câu |
 |---|---|---|
-| `vsql` | **V-SQL tái hiện theo paper** (bản duy nhất, sát paper nhất có thể): view dựng theo các phép JOIN của SQL đáp án như mục 6, viết đúng kiểu Hình 3 (cột id trỏ tới bảng tra cứu được thay tại chỗ bằng giá trị: `gender_id` → `gender`; `v_superhero` trùng Hình 3); D′ = mọi view của CSDL, bảng thực thể không phải bảng gốc của view vẫn hiện, chỉ bảng tra cứu `id` + 1 cột giá trị như `colour`, `gender` biến mất (mục 4.1), **không có bước truy hồi / chọn view**; giai đoạn 1 prompt Hình 4, giai đoạn 2 **luôn chạy** prompt Hình 5 (đúng từng chữ; có `{db_type}` = SQLite và khối định dạng), lấy bảng theo định nghĩa view như mục 4.5; nhiệt độ 0, 800 token. Phần paper không nói: schema Bảng 6 thêm mô tả giá trị + giá trị mẫu  | 2 |
+| `vsql` | **V-SQL tái hiện theo paper** (bản duy nhất, sát paper nhất có thể): view dựng theo các phép JOIN của SQL đáp án như mục 6, viết đúng kiểu Hình 3 (cột id trỏ tới bảng tra cứu được thay tại chỗ bằng giá trị: `gender_id` → `gender`; `v_superhero` trùng Hình 3); D′ = mọi view của CSDL, bảng thực thể không phải bảng gốc của view vẫn hiện, chỉ bảng tra cứu `id` + 1 cột giá trị như `colour`, `gender` biến mất (mục 4.1), **chọn theo câu hỏi**: mặc định thêm 1 lần gọi LLM, đưa danh mục D′ (tên + cột) và câu hỏi, LLM trả về các view/bảng cần dùng, chỉ những đối tượng đó vào prompt Hình 4 (`--vsql-select llm`; `bm25` = top-k BM25, `all` = đưa hết; chú thích Hình 4 "related to the query, retrieved", Hình 1 "Relevant Views"; paper không nói cách chọn; không nhìn SQL đáp án); giai đoạn 1 prompt Hình 4, giai đoạn 2 **luôn chạy** prompt Hình 5 (đúng từng chữ; có `{db_type}` = SQLite và khối định dạng), lấy bảng theo định nghĩa view như mục 4.5; nhiệt độ 0, 800 token. Phần paper không nói: schema Bảng 6 thêm mô tả giá trị + giá trị mẫu  | 2 |
 | `vsqlplus` | **V-SQL+ đầy đủ**: 2 hướng cải tiến + prompt giai đoạn 1 mới | ~4–4,5 |
 | `vsqlplus_fig4` | **V-SQL+ chỉ 2 hướng**: template và cách trình bày schema y như `vsql`, chỉ khác ở cách sinh view và cách chọn view | ~4 |
-| `dinsql` | **DIN-SQL** (baseline Bảng 3), mã chính thức cho BIRD, prompt nguyên văn; bỏ bước tự sửa lỗi như paper | 3 |
 | `dailsql` | **DAIL-SQL** (baseline Bảng 3), cấu hình BIRD của mã chính thức (7 ví dụ từ tập train BIRD, chọn 2 vòng); 1 mẫu, không bầu chọn như paper | 2 |
 
 **Hai hướng cải tiến của V-SQL+** (paper để ngỏ cả hai):
@@ -56,7 +55,7 @@ chỉ để đo).
 
 | Câu hỏi | So sánh |
 |---|---|
-| V-SQL có hơn DIN-SQL / DAIL-SQL không? | `vsql` so với `dinsql`, `dailsql` |
+| V-SQL có hơn DAIL-SQL không? | `vsql` so với `dailsql` |
 | Hai hướng cải tiến có tác dụng riêng không? | `vsqlplus_fig4` − `vsql` |
 | Prompt mới có thêm tác dụng không? | `vsqlplus` − `vsqlplus_fig4` |
 
@@ -84,7 +83,7 @@ kiểm tra md5 của file câu hỏi.
 | `qwen3.5:4b` | **38,0** | 19,2* | 29,4 | 500 câu; mọi chênh lệch có ý nghĩa thống kê |
 | `qwen3.5:0.8b` | 1,6 | 0,8* | 2,2 | model quá nhỏ, không dùng để so sánh |
 | `qwen2.5-coder:7b` | **44,6** | 35,4* | 43,0 | 500 câu (`results_new/cmp_qwen25-coder_7b_d2025/`) |
-| `qwen3.5:4b`, mẫu 200 câu | 33,0 | 22,0** | – | DIN-SQL 29,5, DAIL-SQL 35,5 (`results_new/cmp_qwen35_4b_d2025_mau200/`) |
+| `qwen3.5:4b`, mẫu 200 câu | 33,0 | 22,0** | – | DAIL-SQL 35,5 (`results_new/cmp_qwen35_4b_d2025_mau200/`) |
 
 (EX, %, dữ liệu 2025-07-04. \*\* V-SQL impl 4 (trước sửa D′ giữ bảng thực thể và chọn bảng cho giai đoạn 2). \* V-SQL ở các lần chạy này là cài đặt cũ, chưa có các sửa ngày 13/11 (quote tên cột đặc biệt,
 trích SQL từ câu trả lời); hai dòng đầu còn là bản V-SQL đầu tiên (`predictions_vsql.jsonl`), dòng 3–4 là bản đổi tên thành
@@ -106,7 +105,7 @@ nhân; các lệnh dưới đây chủ yếu để hiểu notebook gọi gì.
 D=minidev/MINIDEV
 COMMON="--data $D/mini_dev_sqlite_2025-07-04.json --db-root $D/dev_databases --tables-json $D/dev_tables.json"
 
-python run_compare.py $COMMON --model qwen3.5:4b --out results/cmp_qwen35_4b_d2025 --methods vsql,vsqlplus,vsqlplus_fig4,dinsql
+python run_compare.py $COMMON --model qwen3.5:4b --out results/cmp_qwen35_4b_d2025 --methods vsql,vsqlplus,vsqlplus_fig4,dailsql
 python run_compare.py $COMMON --model qwen3.5:4b --out results/cmp_qwen35_4b_d2025 --methods vsqlplus_all,vsqlplus_det
 python run_compare.py $COMMON --out results/_views --views-only                   # chỉ sinh + kiểm tra view, không gọi LLM
 python run_compare.py $COMMON --out results/_views --selection-sweep --no-embed   # độ phủ bước chọn view, không gọi LLM
@@ -139,7 +138,7 @@ Mỗi thư mục `--out` có:
 
 | File | Nội dung |
 |---|---|
-| `summary.md`, `summary.csv` | EX tổng và theo độ khó (CI 95% bootstrap), so sánh ghép cặp (McNemar, hiệu chỉnh Holm) với `dinsql` / `dailsql` / `vsql`, phân loại lỗi, chi phí (lượt gọi, token, thời gian), đóng góp từng thành phần, thống kê view |
+| `summary.md`, `summary.csv` | EX tổng và theo độ khó (CI 95% bootstrap), so sánh ghép cặp (McNemar, hiệu chỉnh Holm) với `dailsql` / `vsql`, phân loại lỗi, chi phí (lượt gọi, token, thời gian), đóng góp từng thành phần, thống kê view |
 | `predictions_<phương pháp>.jsonl` | Một dòng mỗi câu: SQL cuối, đúng/sai, loại lỗi, dummy SQL, view đã dùng, chi phí; với V-SQL+ còn có view ứng viên, kết quả bầu chọn, giá trị khớp, các lần quay về bảng gốc |
 | `views/<CSDL>.{oracle,auto}.sql` | View theo JOIN đáp án của `vsql` và view tự động của V-SQL+ |
 | `old_predictions_<phương pháp>_<k>.jsonl` | Bản ghi của cài đặt cũ (khác phiên bản `IMPL` trong `vsql/methods.py`), đã tách ra để chấm lại |
@@ -150,7 +149,7 @@ Mỗi thư mục `--out` có:
 ## Kiểm thử (không cần GPU, Ollama hay BIRD)
 
 ```bash
-python tests/test_compare.py   # V-SQL / V-SQL+ / DIN-SQL / DAIL-SQL với LLM giả lập, view kiểu Hình 3, giải mã view, xử lý lỗi Ollama 500
+python tests/test_compare.py   # V-SQL / V-SQL+ / DAIL-SQL với LLM giả lập, view kiểu Hình 3, giải mã view, xử lý lỗi Ollama 500
 ```
 
 ---
@@ -158,10 +157,9 @@ python tests/test_compare.py   # V-SQL / V-SQL+ / DIN-SQL / DAIL-SQL với LLM g
 ## Cấu trúc mã
 
 ```
-run_compare.py          chạy so sánh V-SQL / V-SQL+ / DIN-SQL / DAIL-SQL (notebook gọi file này)
+run_compare.py          chạy so sánh V-SQL / V-SQL+ / DAIL-SQL (notebook gọi file này)
 vsql/methods.py         các phương pháp: vsql, vsqlplus (+ biến thể), chấm điểm
-vsql/baselines.py       DIN-SQL, DAIL-SQL (baseline Bảng 3 của paper)
-vsql/din_prompts.py     prompt DIN-SQL cho BIRD, trích nguyên văn từ mã chính thức
+vsql/baselines.py       DAIL-SQL (baseline Bảng 3 của paper)
 vsql/autoview.py        dựng view: theo JOIN đáp án (V-SQL, kiểu Hình 3) và tự động từ khóa ngoại (V-SQL+)
 vsql/views.py           kiểm tra số dòng view, giải mã view -> bảng gốc (CTE)
 vsql/linking.py         liên kết giá trị, BM25 + embedding, hợp nhất RRF (V-SQL+)
