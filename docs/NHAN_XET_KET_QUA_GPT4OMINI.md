@@ -244,7 +244,7 @@ Số view: 1–8 view mỗi CSDL, tổng cộng 42 view. Với 9/11 CSDL, số v
 
 Câu ví dụ trong mục này là uid 259 (superhero): "What is the percentage of superheroes who act in their own self-interest or make decisions
 based on their own moral code? Indicate how many of the said superheroes were published by Marvel Comics." DAIL-SQL sai, cả hai bản V-SQL
-và V-SQL+ đúng. Xem đầy đủ từng prompt bằng notebook `notebooks/Demo_LuongGoiLLM_3PP.ipynb` (`UIDS = "259"`).
+và V-SQL+ đúng. Xem đầy đủ từng prompt bằng notebook `notebooks/Demo_VSQL_VSQLplus.ipynb` (câu đầu tiên trong danh sách demo).
 
 ### 6.1. DAIL-SQL: 2 vòng, cùng một khuôn prompt
 
