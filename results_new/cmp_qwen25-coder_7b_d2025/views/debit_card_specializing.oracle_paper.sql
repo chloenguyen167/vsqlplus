@@ -1,5 +1,0 @@
--- origin=oracle row_preserving=True check=rows_equal
-CREATE VIEW v_transactions_1k AS SELECT transactions_1k.TransactionID AS TransactionID, transactions_1k.Date AS Date, transactions_1k.Time AS Time, transactions_1k.CardID AS CardID, transactions_1k.Amount AS Amount, transactions_1k.Price AS Price, customers.Segment AS Segment, customers.Currency AS Currency, gasstations.ChainID AS ChainID, gasstations.Country AS Country, gasstations.Segment AS GasStation_Segment, products.Description AS Description FROM transactions_1k LEFT JOIN customers ON transactions_1k.CustomerID = customers.CustomerID LEFT JOIN gasstations ON transactions_1k.GasStationID = gasstations.GasStationID LEFT JOIN products ON transactions_1k.ProductID = products.ProductID;
-
--- origin=oracle row_preserving=True check=rows_equal
-CREATE VIEW v_yearmonth AS SELECT yearmonth.CustomerID AS CustomerID, yearmonth.Date AS Date, yearmonth.Consumption AS Consumption, customers.Segment AS Segment, customers.Currency AS Currency FROM yearmonth LEFT JOIN customers ON yearmonth.CustomerID = customers.CustomerID;

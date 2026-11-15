@@ -13,10 +13,8 @@ Diem khac bat buoc (ghi ro trong docs): DAIL-SQL dung spaCy thay Stanford CoreNL
 lay lemma khi che ten schema trong cau hoi.
 """
 import collections
-import glob
 import hashlib
 import json
-import os
 import re
 import string
 from pathlib import Path

@@ -1,6 +1,6 @@
 # Tái hiện V-SQL, so sánh với DAIL-SQL và cải tiến V-SQL+ trên BIRD mini-dev
 
-[![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb)
+[![Mở trong Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/VSQL_VSQLplus_Colab.ipynb)
 
 Mã nguồn tái hiện paper **V-SQL: A View-based Two-stage Text-to-SQL Framework** (2024), so sánh với baseline
 **DAIL-SQL** của Bảng 3, và đề xuất cải tiến **V-SQL+**. Thực nghiệm chạy trên **BIRD mini-dev** (500 câu,
@@ -12,7 +12,7 @@ Chỉ dùng thư viện chuẩn của Python ≥ 3.8; không cần `pip install`
 
 ## Chạy trên Google Colab (cách chính)
 
-1. Mở notebook bằng nút **Open in Colab** ở trên ([`notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`](notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb)).
+1. Mở notebook bằng nút **Open in Colab** ở trên ([`notebooks/VSQL_VSQLplus_Colab.ipynb`](notebooks/VSQL_VSQLplus_Colab.ipynb)).
 2. **Runtime → Change runtime type → T4 GPU**.
 3. Ở **Bước 1**, chọn model và phương pháp, rồi chạy lần lượt các ô từ trên xuống.
 
@@ -78,21 +78,17 @@ kiểm tra md5 của file câu hỏi.
 
 ## Kết quả đã có
 
-| Model | TA-SQL (mã đã bỏ, số liệu cũ) | V-SQL | V-SQL+ | Ghi chú |
-|---|---|---|---|---|
-| `qwen3.5:4b` | **38,0** | 19,2* | 29,4 | 500 câu; mọi chênh lệch có ý nghĩa thống kê |
-| `qwen3.5:0.8b` | 1,6 | 0,8* | 2,2 | model quá nhỏ, không dùng để so sánh |
-| `qwen2.5-coder:7b` | **44,6** | 35,4* | 43,0 | 500 câu (`results_new/cmp_qwen25-coder_7b_d2025/`) |
-| `qwen3.5:4b`, mẫu 200 câu | 33,0 | 22,0** | – | DAIL-SQL 35,5 (`results_new/cmp_qwen35_4b_d2025_mau200/`) |
+| Model | DAIL-SQL | V-SQL | V-SQL+ |
+|---|---|---|---|
+| `gpt-4o-mini` (OpenAI API) | 50,0 | 46,8 | **52,4** |
+| `qwen3.5:9b` (Ollama, Colab T4) | **46,4** | 28,4 | 40,2 |
 
-(EX, %, dữ liệu 2025-07-04. \*\* V-SQL impl 4 (trước sửa D′ giữ bảng thực thể và chọn bảng cho giai đoạn 2). \* V-SQL ở các lần chạy này là cài đặt cũ, chưa có các sửa ngày 13/11 (quote tên cột đặc biệt,
-trích SQL từ câu trả lời); hai dòng đầu còn là bản V-SQL đầu tiên (`predictions_vsql.jsonl`), dòng 3–4 là bản đổi tên thành
-`vsql` hiện tại (`predictions_vsql_fair.jsonl`, nay bị bỏ qua khi tổng hợp). Chạy lại `vsql` trong thư mục cũ thì mã tự tách
-bản ghi cũ ra `old_predictions_vsql_*.jsonl` rồi chấm lại.)
+(EX, %, 500 câu, dữ liệu 2025-07-04; thư mục gốc `results_new/cmp_gpt-4o-mini_d2025/`, `results_new/cmp_qwen35_9b_d2025/`.)
 
-Phát hiện chính với 4b: câu SQL nháp viết trên view của V-SQL+ (giai đoạn 1) đúng 200/500 câu, ngang TA-SQL (190). Phần thua đến
-từ giai đoạn 2, khi LLM viết lại SQL nháp về bảng gốc. Phân tích đầy đủ, dễ hiểu:
-[`docs/NHAN_XET_KET_QUA_QWEN35.md`](docs/NHAN_XET_KET_QUA_QWEN35.md). File kết quả gốc nằm trong `results_new/`.
+V-SQL+ luôn hơn V-SQL (+5,6 điểm với gpt-4o-mini, +11,8 với qwen3.5:9b). Với gpt-4o-mini V-SQL+ hơn DAIL-SQL; với model nhỏ
+DAIL-SQL vẫn dẫn đầu vì không có giai đoạn 2 viết lại SQL. Phân tích đầy đủ:
+[`docs/NHAN_XET_KET_QUA_GPT4OMINI.md`](docs/NHAN_XET_KET_QUA_GPT4OMINI.md) (chi tiết gpt-4o-mini) và
+[`docs/NHAN_XET_KET_QUA_500CAU.md`](docs/NHAN_XET_KET_QUA_500CAU.md) (so sánh hai model).
 
 ---
 
@@ -105,8 +101,8 @@ nhân; các lệnh dưới đây chủ yếu để hiểu notebook gọi gì.
 D=minidev/MINIDEV
 COMMON="--data $D/mini_dev_sqlite_2025-07-04.json --db-root $D/dev_databases --tables-json $D/dev_tables.json"
 
-python run_compare.py $COMMON --model qwen3.5:4b --out results/cmp_qwen35_4b_d2025 --methods vsql,vsqlplus,vsqlplus_fig4,dailsql
-python run_compare.py $COMMON --model qwen3.5:4b --out results/cmp_qwen35_4b_d2025 --methods vsqlplus_all,vsqlplus_det
+python run_compare.py $COMMON --model qwen3.5:9b --out results/cmp_qwen35_9b_d2025 --methods vsql,vsqlplus,vsqlplus_fig4,dailsql
+python run_compare.py $COMMON --model qwen3.5:9b --out results/cmp_qwen35_9b_d2025 --methods vsqlplus_all,vsqlplus_det
 python run_compare.py $COMMON --out results/_views --views-only                   # chỉ sinh + kiểm tra view, không gọi LLM
 python run_compare.py $COMMON --out results/_views --selection-sweep --no-embed   # độ phủ bước chọn view, không gọi LLM
 python run_compare.py --help                                                      # toàn bộ tham số
@@ -167,7 +163,9 @@ vsql/meta.py            mô tả cột từ database_description/*.csv, trình b
 vsql/db.py              đọc schema, khóa ngoại (kèm suy luận), chạy SQL có timeout
 vsql/llm.py             client Ollama / API kiểu OpenAI, cache SQLite, thử lại khi lỗi
 vsql/report.py          EX, CI bootstrap, McNemar + Holm, phân loại lỗi, chi phí
-notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb   notebook Colab chính
+notebooks/VSQL_VSQLplus_Colab.ipynb        notebook Colab chính (chạy 500 câu)
+notebooks/Demo_VSQL_VSQLplus.ipynb          notebook demo 3 phút
+scripts/                tải dữ liệu BIRD (tai_du_lieu.py), dựng gói dữ liệu demo (make_demo_pack.py)
 tests/                  kiểm thử với LLM giả lập và CSDL mẫu (test_compare.py, make_toy.py)
 docs/                   hướng dẫn, thiết kế, nhận xét kết quả
 ```
@@ -177,8 +175,11 @@ docs/                   hướng dẫn, thiết kế, nhận xét kết quả
 | File | Nội dung |
 |---|---|
 | [`docs/HUONG_DAN_COLAB_SO_SANH.md`](docs/HUONG_DAN_COLAB_SO_SANH.md) | Hướng dẫn chạy notebook Colab từng bước, giải thích các lựa chọn, xử lý lỗi |
-| [`docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`](docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md) | Kiểm tra phần tái hiện, dữ liệu, thiết kế V-SQL / V-SQL+, các điểm khác paper, kết quả rà soát V-SQL 13/11 |
-| [`docs/NHAN_XET_KET_QUA_QWEN35.md`](docs/NHAN_XET_KET_QUA_QWEN35.md) | Nhận xét, đánh giá kết quả qwen3.5:0.8b và 4b |
+| [`docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md`](docs/TAI_HIEN_DUNG_VA_VSQLPLUS.md) | Dữ liệu, thiết kế V-SQL / V-SQL+ / DAIL-SQL, các điểm khác paper, chấm điểm, kiểm thử |
+| [`docs/HUONG_DAN_API_OPENAI.md`](docs/HUONG_DAN_API_OPENAI.md) | Chạy bằng API OpenAI (gpt-4o-mini) |
+| [`docs/HUONG_DAN_DEMO_VIDEO.md`](docs/HUONG_DAN_DEMO_VIDEO.md) | Chạy notebook demo và lời thoại quay video (kịch bản: [`note.md`](note.md)) |
+| [`docs/NHAN_XET_KET_QUA_GPT4OMINI.md`](docs/NHAN_XET_KET_QUA_GPT4OMINI.md) | Nhận xét kết quả gpt-4o-mini (V-SQL impl 5/6/7, V-SQL+, DAIL-SQL) |
+| [`docs/NHAN_XET_KET_QUA_500CAU.md`](docs/NHAN_XET_KET_QUA_500CAU.md) | So sánh gpt-4o-mini và qwen3.5:9b trên 500 câu |
 
 ## Những điểm khác paper (tóm tắt)
 

@@ -1,7 +1,7 @@
 # Hướng dẫn chạy so sánh V-SQL · V-SQL+ · DAIL-SQL trên Google Colab (GPU T4)
 
 Tài liệu này hướng dẫn từng bước chạy notebook
-[`notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`](../notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb) với các model Qwen
+[`notebooks/VSQL_VSQLplus_Colab.ipynb`](../notebooks/VSQL_VSQLplus_Colab.ipynb) với các model Qwen
 (mặc định `qwen3.5:0.8b`, `qwen3.5:4b`, `qwen3.5:9b`). Toàn bộ thực nghiệm chạy trên Colab, không cần cài gì trên máy cá nhân.
 
 Nội dung thực nghiệm và lý do thiết kế xem ở [`TAI_HIEN_DUNG_VA_VSQLPLUS.md`](TAI_HIEN_DUNG_VA_VSQLPLUS.md).
@@ -35,7 +35,7 @@ git commit -m "Cap nhat V-SQL, V-SQL+ va notebook Colab"
 git push origin main
 ```
 
-Kiểm tra: mở https://github.com/chloenguyen167/vsqlplus/tree/main/notebooks và thấy file `TASQL_VSQL_VSQLplus_Colab.ipynb`.
+Kiểm tra: mở https://github.com/chloenguyen167/vsqlplus/tree/main/notebooks và thấy file `VSQL_VSQLplus_Colab.ipynb`.
 
 > Nếu repo để chế độ **private**, Colab không clone được bằng lệnh trên. Hãy để public, hoặc sửa Bước 3 để clone bằng token.
 
@@ -49,7 +49,7 @@ Kiểm tra: mở https://github.com/chloenguyen167/vsqlplus/tree/main/notebooks 
 ## 2. Mở notebook và chọn GPU
 
 1. Mở link (thay bằng link repo của bạn nếu khác):
-   `https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb`
+   `https://colab.research.google.com/github/chloenguyen167/vsqlplus/blob/main/notebooks/VSQL_VSQLplus_Colab.ipynb`
    (hoặc bấm nút **Open in Colab** trong `README.md`).
 2. Menu **Runtime → Change runtime type → Hardware accelerator: T4 GPU → Save**.
 3. (Nên làm) **File → Save a copy in Drive**, để sửa tham số mà không ảnh hưởng bản gốc.
@@ -71,7 +71,7 @@ tự trong ô.
 |---|---|---|
 | `qwen3_5_0_8b` ✔ | `qwen3.5:0.8b` | Rất nhỏ, chạy nhanh (~1–2 giờ cho 500 câu). Kết quả gần như bằng 0 với mọi phương pháp; chỉ dùng để thấy giới hạn của model nhỏ |
 | `qwen3_5_2b` | `qwen3.5:2b` | Chưa chạy lần nào; tên model chưa kiểm tra trên Ollama |
-| `qwen3_5_4b` ✔ | `qwen3.5:4b` | Đã có kết quả đủ 500 câu (xem `NHAN_XET_KET_QUA_QWEN35.md`) |
+| `qwen3_5_4b` ✔ | `qwen3.5:4b` | Chưa có kết quả trong repo |
 | `qwen3_5_9b` ✔ | `qwen3.5:9b` | Model lớn nhất trong nhóm qwen3.5 chạy được trên T4; chậm nhất (xem bảng thời gian ở Bước 9) |
 | `qwen3_4b`, `qwen3_8b`, `qwen3_14b` | `qwen3:4b`, `qwen3:8b`, `qwen3:14b` | Dòng qwen3 cũ hơn; `qwen3:14b` vẫn vừa T4 |
 
@@ -224,7 +224,6 @@ Thư mục kết quả trên Drive:
 
 | Model | Thư mục |
 |---|---|
-| `qwen3.5:0.8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_08b_d2025/` |
 | `qwen3.5:4b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_4b_d2025/` |
 | `qwen3:8b` | `MyDrive/vsqlplus_ketqua/cmp_qwen3_8b_d2025/` |
 | `qwen3.5:9b` | `MyDrive/vsqlplus_ketqua/cmp_qwen35_9b_d2025/` |

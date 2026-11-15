@@ -112,7 +112,7 @@ python -u run_compare.py \
 
 Notebook tải code từ GitHub (`chloenguyen167/vsqlplus`, nhánh `main`). Vì vậy phải **push code mới lên GitHub trước**.
 
-1. Mở `notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb` trên Colab. Chạy qua API thì **không cần GPU**: Runtime → Change runtime type → CPU cũng được.
+1. Mở `notebooks/VSQL_VSQLplus_Colab.ipynb` trên Colab. Chạy qua API thì **không cần GPU**: Runtime → Change runtime type → CPU cũng được.
 2. **Bước 1** (cấu hình):
    - `BACKEND = openai`
    - `API_MODELS = gpt-4o-mini` (nhiều model thì cách nhau bằng dấu phẩy, ví dụ `gpt-4o-mini, gpt-4.1`)

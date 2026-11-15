@@ -5,7 +5,7 @@ Du lieu: cau hoi BIRD mini-dev ban 2025-07-04 tren Hugging Face (birdsql/bird_mi
 595b6b014a528f4386d2e16f74d14b40): 500 cau khac nhau. CSDL, dev_tables.json, mo ta cot lay tu zip OSS. Ban zip OSS 2024-06
 (mini_dev_sqlite.json, question_id 137/138 lap 2 lan) khong con dung. Moi cau dinh danh theo VI TRI trong file (uid = 0..499).
 
-Vi du (tren Colab, xem notebooks/TASQL_VSQL_VSQLplus_Colab.ipynb):
+Vi du (tren Colab, xem notebooks/VSQL_VSQLplus_Colab.ipynb):
   python run_compare.py --data minidev/MINIDEV/mini_dev_sqlite_2025-07-04.json --db-root minidev/MINIDEV/dev_databases \
       --tables-json minidev/MINIDEV/dev_tables.json\
       --model qwen3:8b --out results/cmp_qwen3_8b_d2025
