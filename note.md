@@ -1,14 +1,32 @@
-# Kịch bản demo (cập nhật 14/11/2026)
+# Kịch bản demo (cập nhật 15/11/2026)
 
 > **Trọng tâm:** tái hiện V-SQL → cải tiến V-SQL+ → đánh giá bằng cách so sánh DAIL-SQL, V-SQL, V-SQL+. Luồng gọi LLM (prompt, câu
 > trả lời, số lần gọi, token) chỉ là một phần thông tin minh hoạ ở bước đánh giá. TA-SQL và DIN-SQL đã bị gỡ khỏi mã nguồn.
 
-- Notebook: [notebooks/Demo_VSQL_VSQLplus.ipynb](notebooks/Demo_VSQL_VSQLplus.ipynb). Chỉ có 3 tuỳ chọn: số câu (1–10), phương pháp,
-  model.
+- Notebook: [notebooks/Demo_VSQL_VSQLplus.ipynb](notebooks/Demo_VSQL_VSQLplus.ipynb).
 - Hướng dẫn chạy và lời thoại quay video: [docs/HUONG_DAN_DEMO_VIDEO.md](docs/HUONG_DAN_DEMO_VIDEO.md).
 - Phân tích đầy đủ: [docs/NHAN_XET_KET_QUA_GPT4OMINI.md](docs/NHAN_XET_KET_QUA_GPT4OMINI.md).
 
-Written for: giảng viên hướng dẫn hoặc hội đồng, trong buổi demo khoảng 7 phút.
+Written for: giảng viên hướng dẫn hoặc hội đồng, trong buổi demo **3 phút**.
+
+## Cấu trúc notebook
+
+| Phần | Ô | Việc | Thời gian |
+|---|---|---|---|
+| **Chuẩn bị** (chạy trước, không quay) | A | Chọn model | — |
+| | B | Mã nguồn, thư viện, dữ liệu. Colab tải gói dữ liệu demo 266 MB từ GitHub Release | Máy: 2 giây. Colab: khoảng 1 phút |
+| | C | Dựng view, chỉ mục giá trị; nạp tập ví dụ DAIL-SQL (đã xử lý sẵn, không tính lại); chạy sẵn 10 câu × 4 phương pháp | Máy: khoảng 20 giây. Colab: khoảng 1–1,5 phút |
+| | D | Hàm hiển thị | Tức thì |
+| **Demo** (quay) | 1, 2 | View V-SQL so với Hình 3; view tự động và liên kết giá trị của V-SQL+ | Tức thì |
+| | 3 | Chạy các phương pháp; tuỳ chọn số câu (1–10) và phương pháp nằm ở ô này | Khoảng 1 giây, chạy lại thoải mái |
+| | 4 | Luồng gọi LLM của một câu (chọn uid) | Tức thì |
+| | 5 | Số lần gọi LLM, token, chi phí | Tức thì |
+| | 6 | Kết quả 500 câu | Tức thì |
+
+DAIL-SQL không train. Phần lâu của nó là xử lý trước 9.428 câu train (che tên schema + embedding, khoảng 8 phút trên CPU) để chọn ví dụ
+few-shot. Kết quả xử lý này nằm sẵn trong gói dữ liệu demo (`minidev/vsql_demo_pack.zip`, dựng bằng `scripts/make_demo_pack.py`, đưa lên
+GitHub Release `demo-data-v1`), cùng 6 CSDL của câu demo và cache câu trả lời của 10 câu. Nhờ vậy toàn bộ notebook trên Colab chạy trong
+khoảng 3–4 phút, không tính lại tập train và không gọi API.
 
 ## Các phương pháp so sánh
 
@@ -21,7 +39,7 @@ Written for: giảng viên hướng dẫn hoặc hội đồng, trong buổi dem
 
 ## Câu demo
 
-10 câu cố định. Notebook lấy `SO_CAU` câu đầu: từ 3 câu trở lên có đủ dễ / trung bình / khó; 10 câu theo đúng tỷ lệ bộ dữ liệu (3 / 5 / 2).
+10 câu cố định. Ô 3 lấy `SO_CAU` câu đầu: từ 3 câu trở lên có đủ dễ / trung bình / khó; 10 câu theo đúng tỷ lệ bộ dữ liệu (3 / 5 / 2).
 Bộ câu gồm cả câu V-SQL thắng, câu V-SQL+ sửa được lỗi của V-SQL, và câu V-SQL / V-SQL+ thua DAIL-SQL, để đánh giá trung thực.
 
 | # | uid | CSDL | Độ khó | DAIL | V-SQL hết view | V-SQL chọn view | V-SQL+ | Điểm minh hoạ |
@@ -39,34 +57,13 @@ Bộ câu gồm cả câu V-SQL thắng, câu V-SQL+ sửa được lỗi của 
 
 Với 10 câu: DAIL-SQL đúng 5, V-SQL đúng 5, V-SQL+ đúng 7 (gpt-4o-mini).
 
-## Kịch bản (khoảng 7 phút)
+## Kịch bản 3 phút
 
-### 0. Mở đầu (30 giây)
-- Mục tiêu: tái hiện V-SQL trên BIRD mini-dev, đề xuất V-SQL+, đánh giá so với DAIL-SQL.
-- Cùng model gpt-4o-mini, nhiệt độ 0, cùng 500 câu.
-
-### 1. Tái hiện V-SQL (1 phút 30 giây) — notebook ô 4
-- Ý tưởng paper: gộp bảng thành view → giai đoạn 1 viết SQL trên view (ít JOIN) → giai đoạn 2 viết lại về bảng gốc.
-- Cách tái hiện: view dựng tự động theo các phép JOIN trong SQL đáp án, kiểu Hình 3. Cho xem `v_superhero` trùng đủ 12 cột Hình 3.
-- CSDL superhero: 10 bảng → D′ còn 3 view. Bảng số view trên 11 CSDL.
-- Prompt Hình 4, Hình 5 giữ nguyên từng chữ. Phần tự thêm: bước LLM chọn view.
-
-### 2. Cải tiến V-SQL+ (1 phút 30 giây) — notebook ô 5
-- Hai hướng: view tự động theo khoá ngoại (không nhìn đáp án), chọn view bằng truy hồi.
-- Thêm: prompt mới (ghi rõ SQLite), liên kết giá trị, sửa lỗi tên cột.
-- Cho xem `v_superhero` tự động (có chú thích nguồn gốc cột) và ví dụ liên kết giá trị `'Human'`.
-- Bảng đóng góp: prompt mới +8,0 điểm, liên kết giá trị +4,2 điểm; bầu chọn không giúp gì nên bỏ.
-
-### 3. Đánh giá trên câu demo (2 phút 30 giây) — notebook ô 6, 7, 8
-- Bảng ✅/❌ của các câu demo.
-- Câu 259: mở prompt và câu trả lời của DAIL-SQL (đoán cột sai), V-SQL (dummy SQL trên view, giai đoạn 2 khôi phục JOIN), V-SQL+ (giá trị khớp).
-- Câu 330 hoặc 261: V-SQL+ sửa được lỗi của V-SQL.
-- Biểu đồ số lần gọi LLM và bảng token, chi phí.
-
-### 4. Kết quả 500 câu (1 phút) — notebook ô 9
-- DAIL-SQL 50,0 · V-SQL 46,0 / 46,8 · V-SQL+ 52,6. Khác biệt với DAIL-SQL không có ý nghĩa thống kê.
-- Biểu đồ giai đoạn 1: V-SQL+ gần như hết lỗi thực thi, nhưng vẫn nhiều câu "chạy được nhưng sai" hơn DAIL-SQL.
-
-### 5. Kết luận (30 giây)
-- View giúp ở câu nhiều khoá ngoại, nhưng V-SQL theo paper chưa vượt DAIL-SQL trên 500 câu.
-- V-SQL+ cao nhất, chi phí chỉ hơn DAIL-SQL một chút. Hướng tiếp theo: thêm few-shot.
+| Thời gian | Ô | Nội dung chính |
+|---|---|---|
+| 0:00–0:15 | đầu notebook | Mục tiêu: tái hiện V-SQL, cải tiến V-SQL+, so với DAIL-SQL; cùng gpt-4o-mini, 500 câu BIRD mini-dev |
+| 0:15–0:50 | 1 | Ý tưởng view → 2 giai đoạn. View dựng theo JOIN đáp án, `v_superhero` trùng 12 cột Hình 3; 10 bảng → 3 view; prompt Hình 4, 5 nguyên văn |
+| 0:50–1:25 | 2 | V-SQL+: view tự động theo khoá ngoại, chọn view bằng truy hồi, prompt SQLite, liên kết giá trị `'Human'`; prompt mới +8 điểm |
+| 1:25–2:25 | 3, 4, 5 | Chạy 3 câu (1 giây). Câu 259: DAIL đoán sai cột, V-SQL dùng view rồi khôi phục JOIN, V-SQL+ có giá trị khớp. Biểu đồ số lần gọi LLM |
+| 2:25–2:50 | 6 | 500 câu: DAIL-SQL 50,0 · V-SQL 46,0 / 46,8 · V-SQL+ 52,6. V-SQL+ gần như hết lỗi thực thi ở giai đoạn 1 |
+| 2:50–3:00 | Kết luận | V-SQL theo paper chưa vượt DAIL-SQL; V-SQL+ cao nhất, chi phí gần DAIL-SQL; hướng tiếp: thêm few-shot |
